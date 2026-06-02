@@ -1,1 +1,244 @@
-[]
+[
+  {
+    "name": "Gin Fizz",
+    "kategorie": "Classic",
+    "preis": 7.50,
+    "spirituose": [
+      "Gin"
+    ],
+    "geschmack": [
+      "frisch",
+      "spritzig",
+      "leicht sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Gin",
+      "Zuckersirup",
+      "Zitronensaft",
+      "Soda"
+    ],
+    "beschreibung": "Klassischer, erfrischender Gin-Cocktail mit Zitronensaft und Soda."
+  },
+
+  {
+    "name": "Sex on the Beach",
+    "kategorie": "Fruchtig",
+    "preis": 7.50,
+    "spirituose": [
+      "Vodka",
+      "Peachtree"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Peachtree",
+      "Ananassaft",
+      "Orangensaft",
+      "Grenadine"
+    ],
+    "beschreibung": "Fruchtiger und süßer Cocktail mit Vodka, Peachtree, Ananassaft, Orangensaft und Grenadine."
+  },
+
+  {
+    "name": "Pina Colada",
+    "kategorie": "Creamig",
+    "preis": 8.50,
+    "spirituose": [
+      "Rum"
+    ],
+    "geschmack": [
+      "süß",
+      "fruchtig",
+      "cremig",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Rum",
+      "Kokossirup",
+      "Sahne",
+      "Ananassaft"
+    ],
+    "beschreibung": "Cremiger tropischer Cocktail mit Rum, Kokossirup, Sahne und Ananassaft."
+  },
+
+  {
+    "name": "Long Island Iced Tea",
+    "kategorie": "Strong",
+    "preis": 8.50,
+    "spirituose": [
+      "Rum",
+      "Triple Sec",
+      "Vodka",
+      "Gin",
+      "Tequila"
+    ],
+    "geschmack": [
+      "stark",
+      "süß",
+      "erfrischend"
+    ],
+    "staerke": "hoch",
+    "zutaten": [
+      "Rum",
+      "Triple Sec",
+      "Vodka",
+      "Gin",
+      "Tequila",
+      "Zitronensaft",
+      "Cola"
+    ],
+    "beschreibung": "Kräftiger Cocktail aus fünf Spirituosen mit Zitronensaft und Cola."
+  },
+
+  {
+    "name": "Mojito",
+    "kategorie": "Caipis",
+    "preis": 7.50,
+    "spirituose": [
+      "Rum"
+    ],
+    "geschmack": [
+      "frisch",
+      "minzig",
+      "leicht süß"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Rum",
+      "Limette",
+      "Brauner Zucker",
+      "Minze",
+      "Soda"
+    ],
+    "beschreibung": "Klassischer kubanischer Cocktail mit Rum, Limette, braunem Zucker, frischer Minze und Soda."
+  },
+
+  {
+    "name": "Caipirinha",
+    "kategorie": "Caipis",
+    "preis": 7.50,
+    "spirituose": [
+      "Cachaca"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "leicht säuerlich"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Cachaca",
+      "Limette",
+      "Brauner Zucker"
+    ],
+    "beschreibung": "Brasilianischer Cocktail mit Cachaca, frischer Limette und braunem Zucker."
+  },
+
+  {
+    "name": "Wikingerblut",
+    "kategorie": "Fruchitg",
+    "preis": 8.50,
+    "spirituose": [
+      "Jack Daniel's Honey"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "kräftig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Jack Daniel's Honey",
+      "Zitronensaft",
+      "Limettensaft",
+      "Brombeersirup",
+      "Johannisbeersaft"
+    ],
+    "beschreibung": "Kräftiger und fruchtiger Cocktail mit Jack Daniel's Honey, Zitrusnoten sowie Brombeer- und Johannisbeeraromen."
+  },
+
+  {
+    "name": "Rotkäppchen ist sauer",
+    "kategorie": "Fruchtig",
+    "preis": 8.50,
+    "spirituose": [
+      "Vodka",
+      "Peachtree"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Peachtree",
+      "Zitronensaft",
+      "Grenadine",
+      "Cranberrysaft",
+      "Grapefruitsaft"
+    ],
+    "beschreibung": "Fruchtiger und leicht saurer Cocktail mit Vodka, Peachtree, Cranberrysaft, Grapefruitsaft, Zitronensaft und Grenadine."
+  },
+
+  {
+    "name": "Swimming Pool",
+    "kategorie": "Creamig",
+    "preis": 8.50,
+    "spirituose": [
+      "Vodka",
+      "Rum"
+    ],
+    "geschmack": [
+      "cremig",
+      "süß",
+      "fruchtig",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Rum",
+      "Blue Curaçao",
+      "Kokossirup",
+      "Ananassaft",
+      "Sahne"
+    ],
+    "beschreibung": "Cremiger tropischer Cocktail mit Vodka, Rum, Kokossirup, Ananassaft, Sahne und Blue Curaçao."
+  },
+
+  {
+    "name": "Zombie",
+    "kategorie": "Strong",
+    "preis": 8.50,
+    "spirituose": [
+      "Heller Rum",
+      "Dunkler Rum",
+      "Triple Sec"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "stark",
+      "tropisch"
+    ],
+    "staerke": "hoch",
+    "zutaten": [
+      "Heller Rum",
+      "Dunkler Rum",
+      "Triple Sec",
+      "Grenadine",
+      "Zitronensaft",
+      "Ananassaft",
+      "Orangensaft"
+    ],
+    "beschreibung": "Kräftiger tropischer Cocktail mit hellem und dunklem Rum, Triple Sec, Fruchtsäften und Grenadine."
+  }
+]
