@@ -1,7 +1,7 @@
 [
   {
     "name": "Gin Fizz",
-    "kategorie": "Classic",
+    "kategorie": "Klassisch",
     "preis": 7.50,
     "spirituose": [
       "Gin"
@@ -47,7 +47,7 @@
 
   {
     "name": "Pina Colada",
-    "kategorie": "Creamig",
+    "kategorie": "Cremig",
     "preis": 8.50,
     "spirituose": [
       "Rum"
@@ -70,7 +70,7 @@
 
   {
     "name": "Long Island Iced Tea",
-    "kategorie": "Strong",
+    "kategorie": "Stark",
     "preis": 8.50,
     "spirituose": [
       "Rum",
@@ -143,7 +143,7 @@
 
   {
     "name": "Wikingerblut",
-    "kategorie": "Fruchitg",
+    "kategorie": "Fruchtig",
     "preis": 8.50,
     "spirituose": [
       "Jack Daniel's Honey"
@@ -190,7 +190,7 @@
 
   {
     "name": "Swimming Pool",
-    "kategorie": "Creamig",
+    "kategorie": "Cremig",
     "preis": 8.50,
     "spirituose": [
       "Vodka",
@@ -216,7 +216,7 @@
 
   {
     "name": "Zombie",
-    "kategorie": "Strong",
+    "kategorie": "Stark",
     "preis": 8.50,
     "spirituose": [
       "Heller Rum",
