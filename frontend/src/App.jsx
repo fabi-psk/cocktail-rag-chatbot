@@ -1,25 +1,22 @@
 import { useState } from "react";
 
 function App() {
-  const [spirituose, setSpirituose] = useState("");
+    const [frage, setFrage] = useState("");
   const [cocktails, setCocktails] = useState([]);
 
-  const sucheCocktails = async () => {
-    try {
-      const response = await fetch(
-          `http://127.0.0.1:8000/search?spirituose=${spirituose}`
-      );
+    const sucheCocktails = async () => {
+        try {
+            const response = await fetch(
+                `http://127.0.0.1:8000/chat?frage=${encodeURIComponent(frage)}`
+            );
 
-      const data = await response.json();
+            const data = await response.json();
 
-      console.log("Komplette Antwort:");
-      console.log(data);
-
-      setCocktails(data.cocktails);
-    } catch (error) {
-      console.error("Fehler:", error);
-    }
-  };
+            setCocktails(data.cocktails);
+        } catch (error) {
+            console.error("Fehler:", error);
+        }
+    };
 
   return (
       <div style={{ padding: "20px" }}>
@@ -53,8 +50,8 @@ function App() {
         <input
             type="text"
             placeholder="Wonach ist dir heute?"
-            value={spirituose}
-            onChange={(e) => setSpirituose(e.target.value)}
+            value={frage}
+            onChange={(e) => setFrage(e.target.value)}
             style={{
                 width: "500px",
                 padding: "16px",
@@ -103,7 +100,15 @@ function App() {
                   }}
               >
                   <div
-                      onClick={() => setSpirituose("Klassisch")}
+                      onClick={async () => {
+                          const response = await fetch(
+                              "http://127.0.0.1:8000/search?kategorie=Klassisch"
+                          );
+
+                          const data = await response.json();
+
+                          setCocktails(data.cocktails);
+                      }}
                       style={{
                           padding: "10px 16px",
                           border: "2px solid #3b82f6",
@@ -116,7 +121,15 @@ function App() {
                   </div>
 
                   <div
-                      onClick={() => setSpirituose("Fruchtig")}
+                      onClick={async () => {
+                          const response = await fetch(
+                              "http://127.0.0.1:8000/search?kategorie=Fruchtig"
+                          );
+
+                          const data = await response.json();
+
+                          setCocktails(data.cocktails);
+                      }}
                       style={{
                           padding: "10px 16px",
                           border: "2px solid #ef4444",
@@ -129,7 +142,15 @@ function App() {
                   </div>
 
                   <div
-                      onClick={() => setSpirituose("Cremig")}
+                      onClick={async () => {
+                          const response = await fetch(
+                              "http://127.0.0.1:8000/search?kategorie=Cremig"
+                          );
+
+                          const data = await response.json();
+
+                          setCocktails(data.cocktails);
+                      }}
                       style={{
                           padding: "10px 16px",
                           border: "2px solid #22c55e",
@@ -142,7 +163,15 @@ function App() {
                   </div>
 
                   <div
-                      onClick={() => setSpirituose("Stark")}
+                      onClick={async () => {
+                          const response = await fetch(
+                              "http://127.0.0.1:8000/search?kategorie=Stark"
+                          );
+
+                          const data = await response.json();
+
+                          setCocktails(data.cocktails);
+                      }}
                       style={{
                           padding: "10px 16px",
                           border: "2px solid #f59e0b",

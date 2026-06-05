@@ -56,6 +56,7 @@
       "süß",
       "fruchtig",
       "cremig",
+      "sahnig",
       "tropisch"
     ],
     "staerke": "mittel",
@@ -165,7 +166,7 @@
   },
 
   {
-    "name": "Rotkäppchen ist sauer",
+    "name": "Rotkäppchen ist Sauer",
     "kategorie": "Fruchtig",
     "preis": 8.50,
     "spirituose": [
@@ -198,6 +199,7 @@
     ],
     "geschmack": [
       "cremig",
+      "sahnig",
       "süß",
       "fruchtig",
       "tropisch"
@@ -240,5 +242,318 @@
       "Orangensaft"
     ],
     "beschreibung": "Kräftiger tropischer Cocktail mit hellem und dunklem Rum, Triple Sec, Fruchtsäften und Grenadine."
+  },
+
+  {
+    "name": "Blue Long Island",
+    "kategorie": "Stark",
+    "preis": 8.50,
+    "spirituose": [
+      "Rum",
+      "Vodka",
+      "Gin",
+      "Tequila"
+    ],
+    "geschmack": [
+      "stark",
+      "süß",
+      "erfrischend",
+      "fruchtig"
+    ],
+    "staerke": "hoch",
+    "zutaten": [
+      "Rum",
+      "Blue Curaçao",
+      "Vodka",
+      "Gin",
+      "Tequila",
+      "Zitronensaft",
+      "Sprite"
+    ],
+    "beschreibung": "Fruchtige Variante des Long Island Iced Tea mit Blue Curaçao und Sprite statt Cola."
+  },
+
+  {
+    "name": "Mai Tai",
+    "kategorie": "Stark",
+    "preis": 8.50,
+    "spirituose": [
+      "Heller Rum",
+      "Dunkler Rum",
+      "Triple Sec"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "tropisch",
+      "süß",
+      "stark"
+    ],
+    "staerke": "hoch",
+    "zutaten": [
+      "Heller Rum",
+      "Dunkler Rum",
+      "Triple Sec",
+      "Mandelsirup",
+      "Zitronensaft",
+      "Ananassaft",
+      "Orangensaft"
+    ],
+    "beschreibung": "Tropischer Rum-Cocktail mit hellem und dunklem Rum, Triple Sec, Mandelsirup sowie Ananas- und Orangensaft."
+  },
+
+  {
+    "name": "Cosmopolitan",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Vodka",
+      "Triple Sec"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "leicht sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Triple Sec",
+      "Zitronensaft",
+      "Zuckersirup",
+      "Cranberrysaft"
+    ],
+    "beschreibung": "Eleganter Cocktail mit Vodka, Triple Sec und Cranberrysaft, ausgewogen zwischen süß und leicht sauer."
+  },
+
+  {
+    "name": "Old Fashioned",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Bourbon"
+    ],
+    "geschmack": [
+      "stark",
+      "süß",
+      "würzig"
+    ],
+    "staerke": "hoch",
+    "zutaten": [
+      "Bourbon",
+      "Zuckersirup",
+      "Angostura Bitters"
+    ],
+    "beschreibung": "Klassischer Whiskey-Cocktail mit Bourbon, Zuckersirup und Angostura Bitters. Kräftig, leicht süß und aromatisch."
+  },
+
+  {
+    "name": "Torrero",
+    "kategorie": "Fruchtig",
+    "preis": 8.50,
+    "spirituose": [
+      "Vodka",
+      "Likör 43"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Likör 43",
+      "Zitronensaft",
+      "Mangosirup",
+      "Orangensaft",
+      "Maracujasaft"
+    ],
+    "beschreibung": "Fruchtiger Cocktail mit Vodka, Likör 43, Mango-, Orangen- und Maracujanoten."
+  },
+
+  {
+    "name": "Baileys Colada",
+    "kategorie": "Cremig",
+    "preis": 8.50,
+    "spirituose": [
+      "Baileys"
+    ],
+    "geschmack": [
+      "cremig",
+      "sahnig",
+      "süß",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Baileys",
+      "Kokossirup",
+      "Sahne",
+      "Ananassaft"
+    ],
+    "beschreibung": "Cremiger tropischer Cocktail mit Baileys, Kokossirup, Sahne und Ananassaft."
+  },
+
+  {
+    "name": "Strawberry Colada",
+    "kategorie": "Cremig",
+    "preis": 8.50,
+    "spirituose": [
+      "Rum"
+    ],
+    "geschmack": [
+      "cremig",
+      "sahnig",
+      "fruchtig",
+      "süß",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Rum",
+      "Kokossirup",
+      "Sahne",
+      "Erdbeerpüree",
+      "Ananassaft"
+    ],
+    "beschreibung": "Cremige und fruchtige Variante der Piña Colada mit Rum, Kokossirup, Sahne, Erdbeerpüree und Ananassaft."
+  },
+
+  {
+    "name": "Karamell Colada",
+    "kategorie": "Cremig",
+    "preis": 8.50,
+    "spirituose": [
+      "Vodka",
+      "Rum"
+    ],
+    "geschmack": [
+      "cremig",
+      "sahnig",
+      "süß",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Rum",
+      "Karamellsirup",
+      "Kokossirup",
+      "Sahne",
+      "Ananassaft"
+    ],
+    "beschreibung": "Cremiger Cocktail mit Vodka, Rum, Karamellsirup, Kokossirup, Sahne und Ananassaft. Süß mit tropischer Note."
+  },
+
+  {
+    "name": "Singapore Sling",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Gin",
+      "Kirschlikör"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "leicht sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Gin",
+      "Kirschlikör",
+      "Zitronensaft",
+      "Zuckersirup",
+      "Soda"
+    ],
+    "beschreibung": "Klassischer Cocktail mit Gin, Kirschlikör, Zitronensaft, Zuckersirup und Soda. Fruchtig, süß und leicht säuerlich."
+  },
+
+  {
+    "name": "Aperol Spritz",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Aperol",
+      "Prosecco"
+    ],
+    "geschmack": [
+      "frisch",
+      "spritzig",
+      "leicht bitter"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Aperol",
+      "Prosecco",
+      "Soda"
+    ],
+    "beschreibung": "Italienischer Aperitif mit Aperol, Prosecco und Soda. Frisch, spritzig und leicht bitter."
+  },
+
+  {
+    "name": "Tommy's Margarita",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Tequila"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Tequila",
+      "Agavensirup",
+      "Limettensaft",
+      "Gepresste Limette"
+    ],
+    "beschreibung": "Moderne Margarita-Variante mit Tequila, Agavensirup und frischer Limette. Ausgewogen zwischen süß und sauer."
+  },
+
+  {
+    "name": "Strawberry Margarita",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Tequila",
+      "Triple Sec"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Tequila",
+      "Triple Sec",
+      "Limettensaft",
+      "Erdbeerpüree"
+    ],
+    "beschreibung": "Fruchtige Margarita mit Tequila, Triple Sec, Limettensaft und Erdbeerpüree. Süß, fruchtig und angenehm säuerlich."
+  },
+
+  {
+    "name": "Daiquiri",
+    "kategorie": "Klassisch",
+    "preis": 8.50,
+    "spirituose": [
+      "Rum"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "sauer"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Rum",
+      "Zuckersirup",
+      "Limettensaft"
+    ],
+    "beschreibung": "Klassischer Rum-Cocktail mit Limettensaft und Zuckersirup. Frisch, ausgewogen und angenehm säuerlich."
   }
 ]
