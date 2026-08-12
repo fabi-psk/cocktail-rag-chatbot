@@ -386,6 +386,17 @@ def infer_cocktail_names_from_answer(answer: str, cocktails_list: list) -> list:
     matches.sort(key=lambda item: item[0])
     return [name for _, name in matches[:3]]
 
+def infer_cocktail_names_from_text(text: str, cocktails_list: list) -> list:
+    normalized_text = normalize_text(text)
+    matches = []
+    for cocktail in cocktails_list:
+        normalized_name = normalize_text(cocktail["name"])
+        if term_matches(normalized_name, normalized_text):
+            match_index = normalized_text.find(normalized_name)
+            matches.append((match_index if match_index >= 0 else 9999, cocktail["name"]))
+    matches.sort(key=lambda item: item[0])
+    return [name for _, name in matches[:3]]
+
 def extract_json_object(text: str) -> dict:
     try:
         return json.loads(text)
@@ -511,15 +522,18 @@ def build_catalog_rag_prompt(user_message: str, cocktails_list: list, history: O
         "Du bist CocktailGPT, ein charmanter Barkeeper-Assistent fuer eine feste Cocktailkarte.\n"
         "Du liest die Nutzereingabe selbst: Wuensche, mehrere Anforderungen, Ausschluesse und einfache Tippfehler.\n"
         "Du arbeitest strikt RAG-basiert mit dem Abschnitt COCKTAIL_KATALOG_JSON.\n"
-        "Du darfst ausschliesslich Cocktails empfehlen, deren Name exakt in ERLAUBTE_COCKTAILNAMEN steht.\n"
+        "Du darfst ausschliesslich Cocktails nennen, deren Name exakt in ERLAUBTE_COCKTAILNAMEN steht.\n"
         "Du darfst keine Cocktailnamen, Zutaten, Preise, Staerken, Kategorien oder Rezepte erfinden.\n"
-        "Waehle die drei passendsten Cocktails aus dem Katalog. Wenn die Anfrage eine Zufallsauswahl verlangt, waehle genau einen Cocktail.\n"
-        "Wenn kein Cocktail wirklich passt, gib eine leere cocktail_names-Liste zurueck und empfehle keinen Ersatz ausserhalb des Katalogs.\n"
+        "Du kannst zwei Arten von Anfragen beantworten:\n"
+        "1. Bei Fragen zu konkreten Cocktails beantwortest du die Frage direkt anhand des Katalogs, ohne ungefragt weitere Cocktails zu empfehlen.\n"
+        "2. Bei Empfehlungswuenschen waehle die drei passendsten Cocktails aus dem Katalog. Wenn die Anfrage eine Zufallsauswahl verlangt, waehle genau einen Cocktail.\n"
+        "Wenn kein Cocktail wirklich passt oder die Frage nicht aus dem Katalog beantwortbar ist, gib eine leere cocktail_names-Liste zurueck und erfinde keinen Ersatz.\n"
+        "cocktail_names enthaelt die Cocktails, die fuer deine Antwort relevant sind: bei Fragen die betroffenen Cocktails, bei Empfehlungen die empfohlenen Cocktails.\n"
         "Die Antwort soll charmant und beratend klingen, kurz auf den Nutzerwunsch eingehen und keine vollstaendigen Zutatenlisten herunterrattern.\n"
-        "Zutaten stehen im Rezeptkatalog; erwaehne sie nur sparsam, wenn sie fuer den Wunsch wichtig sind.\n"
-        "Nenne zu jedem empfohlenen Cocktail kurz Geschmack, Staerke und Preis.\n"
+        "Zutaten stehen im Rezeptkatalog; erwaehne sie nur sparsam, wenn sie fuer die Antwort wichtig sind.\n"
+        "Bei Empfehlungen nenne zu jedem empfohlenen Cocktail kurz Geschmack, Staerke und Preis.\n"
         "Das JSON-Objekt MUSS genau die Felder answer und cocktail_names enthalten.\n"
-        "cocktail_names MUSS die exakt geschriebenen Namen der empfohlenen Cocktails enthalten.\n"
+        "cocktail_names MUSS die exakt geschriebenen Namen der relevanten Cocktails enthalten.\n"
         "Gib ausschliesslich ein gueltiges JSON-Objekt ohne Markdown-Codeblock zurueck.\n"
         'Format: {"answer":"deine deutsche Antwort","cocktail_names":["Name 1","Name 2","Name 3"]}\n\n'
         f"ERLAUBTE_COCKTAILNAMEN: {json.dumps(cocktail_names, ensure_ascii=False)}\n\n"
@@ -584,14 +598,17 @@ def validate_catalog_llm_result(result: dict, selected: list, all_cocktails: lis
     if not selected_names:
         return not mentioned_known_names
 
-    return selected_names.issubset(mentioned_known_names) and mentioned_known_names.issubset(selected_names)
+    return mentioned_known_names.issubset(selected_names)
 
 async def build_llm_catalog_response(message: str, history: Optional[List[ChatMessage]] = None) -> dict:
     prompt_messages = build_catalog_rag_prompt(message, cocktails, history)
     raw_answer = await query_ollama(prompt_messages)
     parsed = extract_json_object(raw_answer)
     if not parsed.get("cocktail_names") and isinstance(parsed.get("answer"), str):
-        parsed["cocktail_names"] = infer_cocktail_names_from_answer(parsed["answer"], cocktails)
+        parsed["cocktail_names"] = (
+            infer_cocktail_names_from_answer(parsed["answer"], cocktails)
+            or infer_cocktail_names_from_text(message, cocktails)
+        )
     selected = find_cocktails_by_names(parsed.get("cocktail_names", []), cocktails)
 
     if not selected:
