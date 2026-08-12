@@ -336,6 +336,7 @@ async def query_ollama(prompt_messages: list) -> str:
         "messages": prompt_messages,
         "temperature": 0.25,
         "top_p": 0.7,
+        "response_format": {"type": "json_object"},
         "stream": False
     }
     
@@ -373,16 +374,46 @@ def find_cocktails_by_names(names: list, cocktails_list: list) -> list:
             seen.add(key)
     return selected
 
+def infer_cocktail_names_from_answer(answer: str, cocktails_list: list) -> list:
+    answer_lower = answer.lower()
+    matches = []
+    for cocktail in cocktails_list:
+        name = cocktail["name"]
+        pattern = rf"(?<!\w){re.escape(name.lower())}(?!\w)"
+        match = re.search(pattern, answer_lower)
+        if match:
+            matches.append((match.start(), name))
+    matches.sort(key=lambda item: item[0])
+    return [name for _, name in matches[:3]]
+
 def extract_json_object(text: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    decoder = json.JSONDecoder()
+    objects = []
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(text[start:])
+            if isinstance(obj, dict):
+                objects.append(obj)
+            index = start + end
+        except json.JSONDecodeError:
+            index = start + 1
+
+    if not objects:
         raise ValueError("LLM response did not contain a JSON object.")
-    return json.loads(match.group(0))
+
+    merged = {}
+    for obj in objects:
+        merged.update(obj)
+    return merged
 
 def is_random_query(text: str) -> bool:
     query_lower = text.lower()
@@ -487,6 +518,8 @@ def build_catalog_rag_prompt(user_message: str, cocktails_list: list, history: O
         "Die Antwort soll charmant und beratend klingen, kurz auf den Nutzerwunsch eingehen und keine vollstaendigen Zutatenlisten herunterrattern.\n"
         "Zutaten stehen im Rezeptkatalog; erwaehne sie nur sparsam, wenn sie fuer den Wunsch wichtig sind.\n"
         "Nenne zu jedem empfohlenen Cocktail kurz Geschmack, Staerke und Preis.\n"
+        "Das JSON-Objekt MUSS genau die Felder answer und cocktail_names enthalten.\n"
+        "cocktail_names MUSS die exakt geschriebenen Namen der empfohlenen Cocktails enthalten.\n"
         "Gib ausschliesslich ein gueltiges JSON-Objekt ohne Markdown-Codeblock zurueck.\n"
         'Format: {"answer":"deine deutsche Antwort","cocktail_names":["Name 1","Name 2","Name 3"]}\n\n'
         f"ERLAUBTE_COCKTAILNAMEN: {json.dumps(cocktail_names, ensure_ascii=False)}\n\n"
@@ -557,6 +590,8 @@ async def build_llm_catalog_response(message: str, history: Optional[List[ChatMe
     prompt_messages = build_catalog_rag_prompt(message, cocktails, history)
     raw_answer = await query_ollama(prompt_messages)
     parsed = extract_json_object(raw_answer)
+    if not parsed.get("cocktail_names") and isinstance(parsed.get("answer"), str):
+        parsed["cocktail_names"] = infer_cocktail_names_from_answer(parsed["answer"], cocktails)
     selected = find_cocktails_by_names(parsed.get("cocktail_names", []), cocktails)
 
     if not selected:
@@ -574,11 +609,14 @@ async def build_llm_catalog_response(message: str, history: Optional[List[ChatMe
     }
 
 async def build_chat_response(message: str, history: Optional[List[ChatMessage]] = None) -> dict:
+    ollama_connection_failed = False
     if USE_LLM_ANSWER:
         try:
             return await build_llm_catalog_response(message, history)
+        except (httpx.HTTPError, httpx.TimeoutException):
+            ollama_connection_failed = True
         except Exception:
-            pass
+            ollama_connection_failed = False
 
     fallback_retrieved = smart_retrieve_cocktails(message, cocktails, limit=50)
     top_3_retrieved = fallback_retrieved[:3]
@@ -590,7 +628,7 @@ async def build_chat_response(message: str, history: Optional[List[ChatMessage]]
         }
 
     return {
-        "answer": build_database_answer(top_3_retrieved, connection_warning=USE_LLM_ANSWER),
+        "answer": build_database_answer(top_3_retrieved, connection_warning=ollama_connection_failed),
         "cocktails": fallback_retrieved
     }
 
