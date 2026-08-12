@@ -334,8 +334,8 @@ async def query_ollama(prompt_messages: list) -> str:
     payload = {
         "model": LLM_MODEL,
         "messages": prompt_messages,
-        "temperature": 0,
-        "top_p": 0.2,
+        "temperature": 0.25,
+        "top_p": 0.7,
         "stream": False
     }
     
@@ -344,6 +344,45 @@ async def query_ollama(prompt_messages: list) -> str:
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
+
+def public_cocktail_catalog(cocktails_list: list) -> list:
+    return [
+        {
+            "name": c["name"],
+            "kategorie": c["kategorie"],
+            "preis": c["preis"],
+            "spirituose": c["spirituose"],
+            "geschmack": c["geschmack"],
+            "staerke": c["staerke"],
+            "zutaten": c["zutaten"],
+            "beschreibung": c["beschreibung"],
+        }
+        for c in cocktails_list
+    ]
+
+def find_cocktails_by_names(names: list, cocktails_list: list) -> list:
+    by_name = {c["name"].lower(): c for c in cocktails_list}
+    selected = []
+    seen = set()
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        key = name.lower().strip()
+        if key in by_name and key not in seen:
+            selected.append(by_name[key].copy())
+            seen.add(key)
+    return selected
+
+def extract_json_object(text: str) -> dict:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError("LLM response did not contain a JSON object.")
+    return json.loads(match.group(0))
 
 def is_random_query(text: str) -> bool:
     query_lower = text.lower()
@@ -433,6 +472,36 @@ def build_rag_prompt(user_message: str, retrieved: list, history: Optional[List[
     prompt_messages.append({"role": "user", "content": user_message})
     return prompt_messages
 
+def build_catalog_rag_prompt(user_message: str, cocktails_list: list, history: Optional[List[ChatMessage]] = None) -> list:
+    catalog_json = json.dumps(public_cocktail_catalog(cocktails_list), ensure_ascii=False)
+    cocktail_names = [c["name"] for c in cocktails_list]
+
+    system_prompt = (
+        "Du bist CocktailGPT, ein charmanter Barkeeper-Assistent fuer eine feste Cocktailkarte.\n"
+        "Du liest die Nutzereingabe selbst: Wuensche, mehrere Anforderungen, Ausschluesse und einfache Tippfehler.\n"
+        "Du arbeitest strikt RAG-basiert mit dem Abschnitt COCKTAIL_KATALOG_JSON.\n"
+        "Du darfst ausschliesslich Cocktails empfehlen, deren Name exakt in ERLAUBTE_COCKTAILNAMEN steht.\n"
+        "Du darfst keine Cocktailnamen, Zutaten, Preise, Staerken, Kategorien oder Rezepte erfinden.\n"
+        "Waehle die drei passendsten Cocktails aus dem Katalog. Wenn die Anfrage eine Zufallsauswahl verlangt, waehle genau einen Cocktail.\n"
+        "Wenn kein Cocktail wirklich passt, gib eine leere cocktail_names-Liste zurueck und empfehle keinen Ersatz ausserhalb des Katalogs.\n"
+        "Die Antwort soll charmant und beratend klingen, kurz auf den Nutzerwunsch eingehen und keine vollstaendigen Zutatenlisten herunterrattern.\n"
+        "Zutaten stehen im Rezeptkatalog; erwaehne sie nur sparsam, wenn sie fuer den Wunsch wichtig sind.\n"
+        "Nenne zu jedem empfohlenen Cocktail kurz Geschmack, Staerke und Preis.\n"
+        "Gib ausschliesslich ein gueltiges JSON-Objekt ohne Markdown-Codeblock zurueck.\n"
+        'Format: {"answer":"deine deutsche Antwort","cocktail_names":["Name 1","Name 2","Name 3"]}\n\n'
+        f"ERLAUBTE_COCKTAILNAMEN: {json.dumps(cocktail_names, ensure_ascii=False)}\n\n"
+        f"COCKTAIL_KATALOG_JSON:\n{catalog_json}"
+    )
+
+    prompt_messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        for msg in history[-6:]:
+            if msg.role in {"user", "assistant"}:
+                prompt_messages.append({"role": msg.role, "content": msg.content})
+
+    prompt_messages.append({"role": "user", "content": user_message})
+    return prompt_messages
+
 def validate_llm_answer(answer: str, retrieved: list, all_cocktails: list) -> bool:
     allowed_names = {c["name"].lower() for c in retrieved[:3]}
     if not allowed_names:
@@ -451,34 +520,78 @@ def validate_llm_answer(answer: str, retrieved: list, all_cocktails: list) -> bo
 
     return mentioned_known_names == allowed_names
 
+def validate_catalog_llm_result(result: dict, selected: list, all_cocktails: list) -> bool:
+    if not isinstance(result.get("answer"), str):
+        return False
+    if not isinstance(result.get("cocktail_names"), list):
+        return False
+
+    requested_names = [
+        name.lower().strip()
+        for name in result["cocktail_names"]
+        if isinstance(name, str) and name.strip()
+    ]
+    selected_names = {c["name"].lower() for c in selected}
+
+    if len(requested_names) != len(set(requested_names)):
+        return False
+    if len(requested_names) > 3:
+        return False
+    if set(requested_names) != selected_names:
+        return False
+
+    answer_lower = result["answer"].lower()
+    known_names = {c["name"].lower() for c in all_cocktails}
+    mentioned_known_names = {
+        name
+        for name in known_names
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", answer_lower)
+    }
+
+    if not selected_names:
+        return not mentioned_known_names
+
+    return selected_names.issubset(mentioned_known_names) and mentioned_known_names.issubset(selected_names)
+
+async def build_llm_catalog_response(message: str, history: Optional[List[ChatMessage]] = None) -> dict:
+    prompt_messages = build_catalog_rag_prompt(message, cocktails, history)
+    raw_answer = await query_ollama(prompt_messages)
+    parsed = extract_json_object(raw_answer)
+    selected = find_cocktails_by_names(parsed.get("cocktail_names", []), cocktails)
+
+    if not selected:
+        return {
+            "answer": build_no_match_answer(),
+            "cocktails": []
+        }
+
+    if not validate_catalog_llm_result(parsed, selected, cocktails):
+        raise ValueError("LLM response failed catalog validation.")
+
+    return {
+        "answer": parsed["answer"],
+        "cocktails": selected
+    }
+
 async def build_chat_response(message: str, history: Optional[List[ChatMessage]] = None) -> dict:
-    all_retrieved = smart_retrieve_cocktails(message, cocktails, limit=50)
-    top_3_retrieved = all_retrieved[:3]
+    if USE_LLM_ANSWER:
+        try:
+            return await build_llm_catalog_response(message, history)
+        except Exception:
+            pass
+
+    fallback_retrieved = smart_retrieve_cocktails(message, cocktails, limit=50)
+    top_3_retrieved = fallback_retrieved[:3]
 
     if not top_3_retrieved:
         return {
             "answer": build_no_match_answer(),
-            "cocktails": all_retrieved
+            "cocktails": fallback_retrieved
         }
-
-    if not USE_LLM_ANSWER:
-        return {
-            "answer": build_database_answer(top_3_retrieved),
-            "cocktails": all_retrieved
-        }
-
-    prompt_messages = build_rag_prompt(message, top_3_retrieved, history)
-
-    try:
-        answer = await query_ollama(prompt_messages)
-        if not validate_llm_answer(answer, top_3_retrieved, cocktails):
-            answer = build_database_answer(top_3_retrieved)
-    except Exception:
-        answer = build_database_answer(top_3_retrieved, connection_warning=True)
 
     return {
-        "answer": answer,
-        "cocktails": all_retrieved
+        "answer": build_database_answer(top_3_retrieved, connection_warning=USE_LLM_ANSWER),
+        "cocktails": fallback_retrieved
     }
 
 @app.get("/")
