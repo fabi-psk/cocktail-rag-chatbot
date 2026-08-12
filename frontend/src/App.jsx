@@ -455,16 +455,6 @@ function App() {
                   </div>
                   <div className="cocktail-desc">{cocktail.beschreibung}</div>
                   
-                  {cocktail.match_score !== undefined && (
-                    <div className="cocktail-score-details">
-                      <span className="score-badge">🎯 RAG-Score: {cocktail.match_score}</span>
-                      <div className="score-reasons">
-                        {cocktail.match_details && cocktail.match_details.map((reason, rIdx) => (
-                          <span key={rIdx} className="reason-tag">{reason}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>

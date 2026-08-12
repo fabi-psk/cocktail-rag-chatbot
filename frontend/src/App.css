@@ -400,42 +400,6 @@ body {
   40% { transform: scale(1.0); }
 }
 
-/* RAG Score & Explainability Styles */
-.cocktail-score-details {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px dashed rgba(139, 92, 246, 0.2);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.score-badge {
-  font-size: 11px;
-  font-weight: 700;
-  color: #c084fc;
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  padding: 2px 8px;
-  border-radius: 12px;
-  align-self: flex-start;
-}
-
-.score-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.reason-tag {
-  font-size: 10px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.03);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
 /* Shuffling Slot Machine Card Animation */
 .shuffling-card {
   animation: shuffle-vibrate 0.15s infinite alternate ease-in-out;
