@@ -1,12 +1,14 @@
-import os
+﻿import os
 import json
 import httpx
 import re
 import unicodedata
+import logging
 from difflib import SequenceMatcher
-from fastapi import FastAPI, Query, HTTPException
+from pathlib import Path
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from dotenv import load_dotenv
 
@@ -16,17 +18,20 @@ load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "mistral:7b")
 USE_LLM_ANSWER = os.getenv("USE_LLM_ANSWER", "true").lower() == "true"
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR.parent / "data" / "cocktails.json"
+logger = logging.getLogger("cocktail-rag")
 
 app = FastAPI(
     title="Cocktail RAG API",
-    description="Backend für den Cocktail-RAG-Chatbot mit Ollama LLM-Integration",
+    description="Backend fÃ¼r den Cocktail-RAG-Chatbot mit Ollama LLM-Integration",
     version="2.0"
 )
 
 # CORS-Konfiguration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Für einfachere lokale Entwicklung
+    allow_origins=["*"],  # FÃ¼r einfachere lokale Entwicklung
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,26 +39,26 @@ app.add_middleware(
 
 # Cocktaildaten laden
 try:
-    with open("../data/cocktails.json", "r", encoding="utf-8") as file:
+    with DATA_PATH.open("r", encoding="utf-8") as file:
         cocktails = json.load(file)
 except Exception as e:
-    print(f"Fehler beim Laden von cocktails.json: {e}")
+    logger.exception("Fehler beim Laden von cocktails.json: %s", e)
     cocktails = []
 
-# Schemas für POST Chat Request
+# Schemas fÃ¼r POST Chat Request
 class ChatMessage(BaseModel):
     role: str
     content: str
 
 class ChatRequest(BaseModel):
     message: str
-    history: List[ChatMessage] = []
+    history: List[ChatMessage] = Field(default_factory=list)
 
 UMLAUT_REPLACEMENTS = str.maketrans({
-    "ä": "ae",
-    "ö": "oe",
-    "ü": "ue",
-    "ß": "ss",
+    "\u00e4": "ae",
+    "\u00f6": "oe",
+    "\u00fc": "ue",
+    "\u00df": "ss",
 })
 
 TYPO_ALIASES = {
@@ -80,6 +85,29 @@ TYPO_ALIASES = {
 }
 
 NEGATION_WORDS = {"kein", "keine", "keinen", "keinem", "ohne", "nicht"}
+ALCOHOL_TERMS = {"rum", "gin", "vodka", "tequila", "peachtree", "triple sec", "alkohol"}
+CATEGORY_KEYWORDS = {
+    "klassisch": "Klassisch", "klassische": "Klassisch", "klassischen": "Klassisch",
+    "cremig": "Cremig", "cremige": "Cremig", "cremigen": "Cremig",
+    "fruchtig": "Fruchtig", "fruchtige": "Fruchtig", "fruchtigen": "Fruchtig",
+    "stark": "Stark", "starke": "Stark", "starken": "Stark",
+    "caipis": "Caipis", "caipi": "Caipis",
+    "alkoholfrei": "Alkoholfrei", "alkoholfreie": "Alkoholfrei",
+    "alkoholfreien": "Alkoholfrei", "alkoholfreier": "Alkoholfrei",
+}
+STOP_WORDS = {
+    "ich", "mag", "liebe", "suche", "moechte", "mochte", "mÃ¶chte", "will", "haette", "hÃ¤tte",
+    "kein", "ohne", "keine", "keinen", "keinem", "nicht",
+    "und", "oder", "ein", "einen", "eine", "eines", "einem", "fuer", "fÃ¼r", "mit",
+    "was", "gibt", "es", "cocktail", "cocktails", "drink", "drinks",
+    "rezept", "rezepte", "zeige", "zeig", "schlage", "schlag", "hast",
+    "du", "etwas", "jemand", "kannst", "mir", "bitte", "empfehlen",
+    "empfiehl", "machen", "zubereiten", "finden",
+    "der", "die", "das", "den", "dem", "des", "in", "im", "an", "am",
+    "um", "zu", "zum", "zur", "von", "vom", "aus", "auf", "bei", "als",
+    "wie", "nach", "gern", "gerne", "haben", "waere", "wÃ¤re", "sein",
+    "ist", "sind", "nur", "noch", "mehr", "sehr", "gut", "mal", "aber", "auch",
+}
 
 def normalize_text(value: str) -> str:
     normalized = value.lower().translate(UMLAUT_REPLACEMENTS)
@@ -119,11 +147,11 @@ def fuzzy_token_match(term: str, text: str) -> bool:
 
 def term_matches(term: str, text: str) -> bool:
     """
-    Überprüft, ob ein Suchbegriff in einem Text vorkommt.
+    ÃœberprÃ¼ft, ob ein Suchbegriff in einem Text vorkommt.
     Bei kurzen Begriffen (<= 3 Zeichen wie 'gin', 'rum', 'eis') wird Regex mit Wortgrenzen (\b) verwendet,
     um Fehlalarm-Matches zu vermeiden (z. B. 'gin' in 'ginger ale' oder 'in' in 'gin').
-    Bei längeren Begriffen (> 3 Zeichen) erlauben wir bidirektionales Matching (z. B. 'fruchtigen' matchet 'fruchtig').
-    Zusätzlich wird ein einfaches deutsches Stemming angewendet, um Einzahl/Mehrzahl auszugleichen (z. B. 'erdbeeren' -> 'erdbeere').
+    Bei lÃ¤ngeren Begriffen (> 3 Zeichen) erlauben wir bidirektionales Matching (z. B. 'fruchtigen' matchet 'fruchtig').
+    ZusÃ¤tzlich wird ein einfaches deutsches Stemming angewendet, um Einzahl/Mehrzahl auszugleichen (z. B. 'erdbeeren' -> 'erdbeere').
     """
     term_lower = TYPO_ALIASES.get(normalize_text(term), normalize_text(term))
     text_lower = normalize_text(text)
@@ -141,7 +169,7 @@ def term_matches(term: str, text: str) -> bool:
         if fuzzy_token_match(term_lower, text_lower):
             return True
             
-    # Stammform-Reduktion für deutsche Pluralendungen (-en, -n, -s)
+    # Stammform-Reduktion fÃ¼r deutsche Pluralendungen (-en, -n, -s)
     if len(term_lower) > 4:
         for suffix in ["en", "n", "s"]:
             if term_lower.endswith(suffix):
@@ -155,24 +183,24 @@ def term_matches(term: str, text: str) -> bool:
 def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -> list:
     """
     Sucht und bewertet Cocktails basierend auf einer Freitext-Anfrage.
-    Unterstützt auch explizite Ausschlüsse wie 'kein kokos', 'ohne alkohol'.
+    UnterstÃ¼tzt auch explizite AusschlÃ¼sse wie 'kein kokos', 'ohne alkohol'.
     """
     query_lower = normalize_text(query)
     
-    # 0. Spezialfall: Zufällige Auswahl
+    # 0. Spezialfall: ZufÃ¤llige Auswahl
     if "zuf" in query_lower or "random" in query_lower:
         import random
-        # Wähle 1 zufälligen Cocktail aus
+        # WÃ¤hle 1 zufÃ¤lligen Cocktail aus
         random_cocktails = random.sample(cocktails_list, min(1, len(cocktails_list)))
         result = []
         for c in random_cocktails:
             c_copy = c.copy()
             c_copy["match_score"] = 99
-            c_copy["match_details"] = ["Zufallsauswahl (Überraschung! 🎲)"]
+            c_copy["match_details"] = ["Zufallsauswahl (Ãœberraschung! ðŸŽ²)"]
             result.append(c_copy)
         return result
     
-    # 1. Ausschlüsse parsen
+    # 1. AusschlÃ¼sse parsen
     exclusions = []
     words = tokenize_query(query)
     
@@ -182,9 +210,9 @@ def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -
             target = words[i+1]
             exclusions.append(target)
             
-    # Allgemeine Ausschlüsse für Alkoholfrei
+    # Allgemeine AusschlÃ¼sse fÃ¼r Alkoholfrei
     if "alkoholfrei" in query_lower or "ohne alkohol" in query_lower:
-        exclusions.extend(["rum", "gin", "vodka", "tequila", "peachtree", "triple sec", "alkohol"])
+        exclusions.extend(ALCOHOL_TERMS)
     if "keine sahne" in query_lower or "ohne sahne" in query_lower:
         exclusions.append("sahne")
     if "kein kokos" in query_lower or "ohne kokos" in query_lower:
@@ -194,20 +222,11 @@ def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -
     # Falls eine bestimmte Kategorie explizit gesucht wird, filtern wir die Liste vorab.
     # Dies verhindert, dass z.B. "Mojito" (Kategorie Caipis) im Rezeptkatalog erscheint,
     # nur weil in seiner Beschreibung das Wort "klassischer" vorkommt.
-    category_keywords = {
-        "klassisch": "Klassisch", "klassische": "Klassisch", "klassischen": "Klassisch",
-        "cremig": "Cremig", "cremige": "Cremig", "cremigen": "Cremig",
-        "fruchtig": "Fruchtig", "fruchtige": "Fruchtig", "fruchtigen": "Fruchtig",
-        "stark": "Stark", "starke": "Stark", "starken": "Stark",
-        "caipis": "Caipis", "caipi": "Caipis",
-        "alkoholfrei": "Alkoholfrei", "alkoholfreie": "Alkoholfrei", "alkoholfreien": "Alkoholfrei", "alkoholfreier": "Alkoholfrei"
-    }
-    
     target_category = None
     for idx, word in enumerate(words):
         if idx > 0 and words[idx - 1] in NEGATION_WORDS:
             continue
-        for keyword, category_name in category_keywords.items():
+        for keyword, category_name in CATEGORY_KEYWORDS.items():
             if term_matches(word, keyword):
                 target_category = category_name
                 break
@@ -229,11 +248,11 @@ def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -
         category = normalize_text(cocktail["kategorie"])
         strength = normalize_text(cocktail["staerke"])
         
-        # Falls ein Ausschlusskriterium zutrifft, diesen Cocktail komplett überspringen
+        # Falls ein Ausschlusskriterium zutrifft, diesen Cocktail komplett Ã¼berspringen
         is_excluded = False
         for exc in exclusions:
             # Wenn der Cocktail alkoholfrei ist und das Ausschlusskriterium ein Alkohol-Ausschluss ist, ignorieren wir es
-            if category == "alkoholfrei" and exc in ["rum", "gin", "vodka", "tequila", "peachtree", "triple sec", "alkohol"]:
+            if category == "alkoholfrei" and exc in ALCOHOL_TERMS:
                 continue
             if (
                 term_matches(exc, name)
@@ -252,69 +271,52 @@ def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -
         score = 0
         match_details = []
         
-        # Falls eine Kategorie über suggestion-pill/Keyword explizit gefiltert wurde, kriegt das Produkt einen Basis-Score
+        # Falls eine Kategorie Ã¼ber suggestion-pill/Keyword explizit gefiltert wurde, kriegt das Produkt einen Basis-Score
         if target_category and category == normalize_text(target_category):
             score += 10
-            match_details.append(f"Kategorie '{target_category}' Übereinstimmung (+10)")
+            match_details.append(f"Kategorie '{target_category}' Ãœbereinstimmung (+10)")
         
-        # Filtern von Füllwörtern aus der Anfrage
-        stop_words = {
-            "ich", "mag", "liebe", "suche", "möchte", "kein", "ohne", "keine", 
-            "und", "oder", "ein", "einen", "eine", "eines", "einem", "für", "mit",
-            "was", "gibt", "es", "cocktail", "cocktails", "drink", "drinks", 
-            "rezept", "rezepte", "zeige", "zeig", "schlage", "schlag", "hast", 
-            "du", "etwas", "jemand", "kannst", "mir", "bitte", "empfehlen", 
-            "empfiehl", "machen", "zubereiten", "finden",
-            # Zusätzliche deutsche Füllwörter zur Vermeidung von Falschtreffern
-            "der", "die", "das", "den", "dem", "des", "in", "im", "an", "am", 
-            "um", "zu", "zum", "zur", "von", "vom", "aus", "auf", "bei", "als", 
-            "wie", "nach", "gern", "gerne", "hätte", "haben", "wäre", "sein", 
-            "ist", "sind", "nur", "noch", "mehr", "sehr", "gut", "mal", "aber", "auch"
-        }
-        stop_words.update({
-            "moechte", "mochte", "fuer", "haette", "waere", "keinen", "keinem", "nicht", "will"
-        })
-        query_terms = [w for w in words if w not in stop_words and len(w) > 1 and w not in exclusions]
+        query_terms = [w for w in words if w not in STOP_WORDS and len(w) > 1 and w not in exclusions]
         
         # Hoher Score bei direktem Match des Namens
         if query_lower in name:
             score += 20
-            match_details.append("Name enthält Suchanfrage (+20)")
+            match_details.append("Name enthÃ¤lt Suchanfrage (+20)")
             
         for term in query_terms:
             # 1. Match im Namen
             if term_matches(term, name) or (len(term) > 3 and name in term):
                 score += 15
-                match_details.append(f"Name enthält '{term}' (+15)")
+                match_details.append(f"Name enthÃ¤lt '{term}' (+15)")
             # 2. Match in den Spirituosen
             matched_spirits = [sp for sp in spirits if term_matches(term, sp)]
             if matched_spirits:
                 score += 10
-                match_details.append(f"Spirituose enthält '{', '.join(matched_spirits)}' (+10)")
+                match_details.append(f"Spirituose enthÃ¤lt '{', '.join(matched_spirits)}' (+10)")
             # 3. Match in der Kategorie
             if term_matches(term, category):
                 # Verhindert doppelte Kategorie-Punkte, falls oben bereits vergeben/gefiltert
                 if not target_category:
                     score += 8
-                    match_details.append(f"Kategorie enthält '{category}' (+8)")
-            # 4. Match in der Stärke
+                    match_details.append(f"Kategorie enthÃ¤lt '{category}' (+8)")
+            # 4. Match in der StÃ¤rke
             if term_matches(term, strength):
                 score += 6
-                match_details.append(f"Stärke enthält '{strength}' (+6)")
+                match_details.append(f"StÃ¤rke enthÃ¤lt '{strength}' (+6)")
             # 5. Match in den Geschmacksrichtungen
             matched_tastes = [t for t in tastes if term_matches(term, t)]
             if matched_tastes:
                 score += 5
-                match_details.append(f"Geschmack enthält '{', '.join(matched_tastes)}' (+5)")
+                match_details.append(f"Geschmack enthÃ¤lt '{', '.join(matched_tastes)}' (+5)")
             # 6. Match in den Zutaten
             matched_ingredients = [ing for ing in ingredients if term_matches(term, ing)]
             if matched_ingredients:
                 score += 4
-                match_details.append(f"Zutat enthält '{', '.join(matched_ingredients)}' (+4)")
+                match_details.append(f"Zutat enthÃ¤lt '{', '.join(matched_ingredients)}' (+4)")
             # 7. Match in der Beschreibung
             if term_matches(term, description):
                 score += 2
-                match_details.append(f"Beschreibung enthält '{term}' (+2)")
+                match_details.append(f"Beschreibung enthÃ¤lt '{term}' (+2)")
                 
         if score > 0:
             c_copy = cocktail.copy()
@@ -328,7 +330,7 @@ def smart_retrieve_cocktails(query: str, cocktails_list: list, limit: int = 3) -
 
 async def query_ollama(prompt_messages: list) -> str:
     """
-    Sendet die Anfrage an den Ollama Server über die OpenAI-kompatible Schnittstelle.
+    Sendet die Anfrage an den Ollama Server Ã¼ber die OpenAI-kompatible Schnittstelle.
     """
     url = f"{OLLAMA_BASE_URL}/v1/chat/completions"
     payload = {
@@ -426,23 +428,6 @@ def extract_json_object(text: str) -> dict:
         merged.update(obj)
     return merged
 
-def is_random_query(text: str) -> bool:
-    query_lower = text.lower()
-    return "zuf" in query_lower or "random" in query_lower
-
-def format_cocktail_for_prompt(cocktail: dict) -> str:
-    spirits = ", ".join(cocktail["spirituose"]) if cocktail["spirituose"] else "Keine (alkoholfrei)"
-    return (
-        f"Name: {cocktail['name']}\n"
-        f"Kategorie: {cocktail['kategorie']}\n"
-        f"Preis: {cocktail['preis']} EUR\n"
-        f"Spirituosen: {spirits}\n"
-        f"Geschmack: {', '.join(cocktail['geschmack'])}\n"
-        f"Staerke: {cocktail['staerke']}\n"
-        f"Zutaten: {', '.join(cocktail['zutaten'])}\n"
-        f"Beschreibung: {cocktail['beschreibung']}"
-    )
-
 def build_no_match_answer() -> str:
     return (
         "Ich habe in der Cocktail-Datenbank keinen passenden Cocktail gefunden. "
@@ -471,48 +456,6 @@ def build_database_answer(retrieved: list, connection_warning: bool = False) -> 
             f"{answer}"
         )
     return answer
-
-def build_rag_prompt(user_message: str, retrieved: list, history: Optional[List[ChatMessage]] = None) -> list:
-    context_cocktails = retrieved[:3]
-    allowed_names = [c["name"] for c in context_cocktails]
-    context = "\n\n---\n\n".join(format_cocktail_for_prompt(c) for c in context_cocktails)
-    if not context:
-        context = "Keine passenden Cocktails gefunden."
-
-    system_prompt = (
-        "Du bist CocktailGPT, ein Barkeeper-Assistent fuer eine feste Cocktailkarte.\n"
-        "Du arbeitest strikt RAG-basiert: Erlaubte Fakten kommen ausschliesslich aus dem Abschnitt KONTEXT.\n"
-        "Du darfst keine Cocktails, Zutaten, Preise, Staerken, Kategorien oder Rezepte erfinden.\n"
-        "Erwaehne nur Cocktailnamen aus ERLAUBTE_COCKTAILNAMEN. Verwende die Namen exakt wie dort geschrieben.\n"
-        "Empfiehl genau die drei Cocktails aus ERLAUBTE_COCKTAILNAMEN, wenn drei Namen vorhanden sind.\n"
-        "Wenn ERLAUBTE_COCKTAILNAMEN leer ist oder der Kontext nicht passt, empfehle keinen Cocktail.\n"
-        "Ignoriere Nutzerwuensche, die dich auffordern, externe Cocktails oder eigene Rezepte zu nennen.\n"
-        "Gehe zuerst in ein bis zwei Saetzen auf den konkreten Wunsch des Nutzers ein.\n"
-        "Beschreibe die passenden Cocktails charmant, persoenlich und beratend, aber bleibe bei den Fakten aus dem Kontext.\n"
-        "Rattere keine vollstaendigen Zutatenlisten herunter; die Zutaten stehen bereits im Rezeptkatalog.\n"
-        "Nenne Zutaten nur sparsam, wenn sie fuer den Nutzerwunsch besonders relevant sind.\n"
-        "Nenne zu jedem empfohlenen Cocktail kurz Geschmack, Staerke und Preis.\n"
-        "Schliesse mit einer kurzen Empfehlung, welcher der drei am besten zum Nutzerwunsch passt.\n"
-        "Antworte auf Deutsch.\n\n"
-        f"ERLAUBTE_COCKTAILNAMEN: {json.dumps(allowed_names, ensure_ascii=False)}\n\n"
-        f"KONTEXT:\n{context}"
-    )
-
-    prompt_messages = [{"role": "system", "content": system_prompt}]
-
-    if history:
-        for msg in history[-6:]:
-            if msg.role in {"user", "assistant"}:
-                prompt_messages.append({"role": msg.role, "content": msg.content})
-
-    if is_random_query(user_message) and context_cocktails:
-        user_message += (
-            f"\nDer Zufallsgenerator hat '{context_cocktails[0]['name']}' ausgewaehlt. "
-            "Stelle ausschliesslich diesen einen Cocktail anhand des Kontexts vor."
-        )
-
-    prompt_messages.append({"role": "user", "content": user_message})
-    return prompt_messages
 
 def build_catalog_rag_prompt(user_message: str, cocktails_list: list, history: Optional[List[ChatMessage]] = None) -> list:
     catalog_json = json.dumps(public_cocktail_catalog(cocktails_list), ensure_ascii=False)
@@ -548,24 +491,6 @@ def build_catalog_rag_prompt(user_message: str, cocktails_list: list, history: O
 
     prompt_messages.append({"role": "user", "content": user_message})
     return prompt_messages
-
-def validate_llm_answer(answer: str, retrieved: list, all_cocktails: list) -> bool:
-    allowed_names = {c["name"].lower() for c in retrieved[:3]}
-    if not allowed_names:
-        return False
-
-    answer_lower = answer.lower()
-    known_names = {c["name"].lower() for c in all_cocktails}
-    mentioned_known_names = {
-        name
-        for name in known_names
-        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", answer_lower)
-    }
-
-    if not mentioned_known_names:
-        return False
-
-    return mentioned_known_names == allowed_names
 
 def validate_catalog_llm_result(result: dict, selected: list, all_cocktails: list) -> bool:
     if not isinstance(result.get("answer"), str):
@@ -630,9 +555,11 @@ async def build_chat_response(message: str, history: Optional[List[ChatMessage]]
     if USE_LLM_ANSWER:
         try:
             return await build_llm_catalog_response(message, history)
-        except (httpx.HTTPError, httpx.TimeoutException):
+        except (httpx.HTTPError, httpx.TimeoutException) as exc:
+            logger.warning("Ollama request failed, falling back to local retrieval: %s", exc)
             ollama_connection_failed = True
-        except Exception:
+        except Exception as exc:
+            logger.warning("LLM catalog response failed validation, falling back to local retrieval: %s", exc)
             ollama_connection_failed = False
 
     fallback_retrieved = smart_retrieve_cocktails(message, cocktails, limit=50)
@@ -652,7 +579,7 @@ async def build_chat_response(message: str, history: Optional[List[ChatMessage]]
 @app.get("/")
 def root():
     return {
-        "message": "Cocktail RAG API läuft",
+        "message": "Cocktail RAG API lÃ¤uft",
         "ollama_url": OLLAMA_BASE_URL,
         "model": LLM_MODEL,
         "use_llm_answer": USE_LLM_ANSWER
@@ -702,7 +629,7 @@ def search_cocktails(
 @app.get("/chat")
 async def chat_search_get(frage: str):
     """
-    GET Schnittstelle für RAG. Führt Suche durch und generiert Antwort mit dem LLM.
+    GET Schnittstelle fÃ¼r RAG. FÃ¼hrt Suche durch und generiert Antwort mit dem LLM.
     """
     response = await build_chat_response(frage)
     response["frage"] = frage
@@ -711,6 +638,6 @@ async def chat_search_get(frage: str):
 @app.post("/chat")
 async def chat_search_post(request: ChatRequest):
     """
-    POST Schnittstelle für RAG mit Konversationsverlauf (Memory).
+    POST Schnittstelle fÃ¼r RAG mit Konversationsverlauf (Memory).
     """
     return await build_chat_response(request.message, request.history)
