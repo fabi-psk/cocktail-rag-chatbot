@@ -10,6 +10,7 @@ def _matches_removed_value(item: str, value: str) -> bool:
 class ConversationService:
     def __init__(self) -> None:
         self._sessions: dict[str, CocktailPreferences] = {}
+        self._last_random_cocktails: dict[str, str] = {}
 
     def get_preferences(self, session_id: str | None) -> CocktailPreferences:
         if not session_id:
@@ -23,6 +24,16 @@ class ConversationService:
     def reset_preferences(self, session_id: str | None) -> None:
         if session_id:
             self._sessions.pop(session_id, None)
+            self._last_random_cocktails.pop(session_id, None)
+
+    def get_last_random_cocktail(self, session_id: str | None) -> str | None:
+        if not session_id:
+            return None
+        return self._last_random_cocktails.get(session_id)
+
+    def update_last_random_cocktail(self, session_id: str | None, cocktail_name: str | None) -> None:
+        if session_id and cocktail_name:
+            self._last_random_cocktails[session_id] = cocktail_name
 
     def remove_preference(self, session_id: str | None, field: str, value: str | None = None) -> CocktailPreferences:
         preferences = self.get_preferences(session_id)

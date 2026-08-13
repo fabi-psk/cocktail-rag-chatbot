@@ -124,6 +124,22 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(intent, "conversation")
 
+    def test_random_intent_is_detected_locally(self):
+        for message in [
+            "Ueberrasch mich",
+            "Zufaelliger Cocktail",
+            "Ich kann mich nicht entscheiden",
+        ]:
+            with self.subTest(message=message):
+                intent = chat_service.detect_intent(
+                    message,
+                    chat_service.CocktailPreferences(),
+                    chat_service.CocktailPreferences(),
+                    COCKTAILS,
+                )
+
+                self.assertEqual(intent, "random")
+
     def test_conversation_answer_requires_a_follow_up_question(self):
         incomplete = chat_service.IntentAnalysis(
             intent="conversation", answer="Cocktails sind wirklich vielseitig."
@@ -602,6 +618,57 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(response["type"], "follow_up")
         self.assertEqual(response["cocktails"], [])
+
+    def test_random_response_without_preferences_uses_all_cocktails(self):
+        with patch.object(chat_service.random, "choice", side_effect=lambda items: items[0]):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ueberrasch mich",
+                    repository=FakeRepository(),
+                    conversations=ConversationService(),
+                )
+            )
+
+        self.assertEqual(response["type"], "random")
+        self.assertEqual(response["intent"], "random")
+        self.assertEqual(response["selected_cocktail"]["name"], "Caribbean Dream")
+        self.assertEqual(len(response["roulette_cocktails"]), len(COCKTAILS))
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Caribbean Dream"])
+
+    def test_random_response_respects_rum_and_coconut_exclusion(self):
+        with patch.object(chat_service.random, "choice", side_effect=lambda items: items[0]):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ich mag Rum und keinen Kokos. Ueberrasch mich.",
+                    repository=FakeRepository(),
+                    conversations=ConversationService(),
+                )
+            )
+
+        self.assertEqual(response["type"], "random")
+        self.assertEqual(response["preferences"]["spirits"], ["Rum"])
+        self.assertIn("Kokossirup", response["preferences"]["disliked_ingredients"])
+        self.assertEqual(response["selected_cocktail"]["name"], "Caribbean Dream")
+        self.assertTrue(
+            all("Kokossirup" not in cocktail["zutaten"] for cocktail in response["roulette_cocktails"])
+        )
+
+    def test_random_response_avoids_immediate_repeat_when_possible(self):
+        conversations = ConversationService()
+        conversations.update_last_random_cocktail("again", "Caribbean Dream")
+
+        with patch.object(chat_service.random, "choice", side_effect=lambda items: items[0]):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Nochmal!",
+                    repository=FakeRepository(),
+                    session_id="again",
+                    conversations=conversations,
+                )
+            )
+
+        self.assertEqual(response["type"], "random")
+        self.assertNotEqual(response["selected_cocktail"]["name"], "Caribbean Dream")
 
     def test_recommendation_for_gin_preference(self):
         async def fake_update_preferences_with_llm(message, preferences, cocktails):

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import "./App.css";
-import { fetchCocktails, removePreference, resetChatSession, sendChatMessage } from "./services/api";
+import { removePreference, resetChatSession, sendChatMessage } from "./services/api";
 
 const createSessionId = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -92,6 +92,95 @@ const getMatchLabel = (index) => {
   return "Interessante Alternative";
 };
 
+const isRandomText = (text) => {
+  const normalized = normalize(text)
+    .replace(/[ä]/g, "ae")
+    .replace(/[ü]/g, "ue")
+    .replace(/[ö]/g, "oe");
+  return (
+    normalized.includes("zufaellig") ||
+    normalized.includes("zufallig") ||
+    normalized.includes("ueberrasch") ||
+    normalized.includes("uberrasch") ||
+    normalized.includes("irgendwas aus") ||
+    normalized.includes("nicht entscheiden") ||
+    normalized.includes("nochmal")
+  );
+};
+
+function CocktailRoulette({ cocktails, selectedCocktail, onComplete }) {
+  const sequence = useMemo(
+    () => (cocktails?.length ? cocktails : selectedCocktail ? [selectedCocktail] : []),
+    [cocktails, selectedCocktail]
+  );
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFinished, setIsFinished] = useState(false);
+  const colors = ["#10b981", "#06b6d4", "#3b82f6", "#a855f7", "#ec4899", "#f97316", "#eab308"];
+
+  useEffect(() => {
+    if (!sequence.length || !selectedCocktail) return undefined;
+
+    const delays = sequence.length === 1
+      ? [350]
+      : [100, 100, 120, 150, 190, 250, 330, 430];
+    const timers = [];
+    let elapsed = 0;
+
+    delays.forEach((delay, index) => {
+      elapsed += delay;
+      timers.push(setTimeout(() => {
+        if (index === delays.length - 1) {
+          const selectedIndex = sequence.findIndex((item) => item.name === selectedCocktail.name);
+          setCurrentIndex(selectedIndex >= 0 ? selectedIndex : 0);
+          setIsFinished(true);
+          onComplete?.();
+          return;
+        }
+        setCurrentIndex((prev) => (prev + 1) % sequence.length);
+      }, elapsed));
+    });
+
+    return () => timers.forEach((timer) => clearTimeout(timer));
+  }, [sequence, selectedCocktail, onComplete]);
+
+  if (!sequence.length) return null;
+
+  const cocktail = isFinished ? selectedCocktail : sequence[currentIndex % sequence.length];
+  const color = colors[currentIndex % colors.length];
+  const highlights = [
+    ...(cocktail?.geschmack || []),
+    cocktail?.staerke,
+  ].filter(Boolean).slice(0, 4);
+
+  return (
+    <div className={`roulette-shell ${isFinished ? "finished" : ""}`}>
+      <div className="roulette-kicker">
+        {isFinished ? "Dein Zufalls-Cocktail" : "CocktailGPT mixt dein Schicksal..."}
+      </div>
+      <div
+        key={`${cocktail?.name}-${currentIndex}-${isFinished}`}
+        className={`cocktail-card roulette-card ${isFinished ? "winner" : ""}`}
+        style={{
+          borderColor: color,
+          boxShadow: `0 0 ${isFinished ? 28 : 18}px ${color}55`,
+          background: `linear-gradient(135deg, ${color}1f, rgba(30, 41, 59, 0.72))`,
+        }}
+      >
+        <h3>
+          <span>{isFinished ? "🎉" : "🎲"} {cocktail?.name}</span>
+          {cocktail?.preis != null && <span className="cocktail-price">{cocktail.preis.toFixed(2)} €</span>}
+        </h3>
+        <div className="match-label">{isFinished ? "Gewinner" : "Roulette laeuft"}</div>
+        <div className="cocktail-meta">
+          {highlights.map((value) => (
+            <span key={`${cocktail?.name}-${value}`}>{value}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [messages, setMessages] = useState([
     {
@@ -103,21 +192,13 @@ function App() {
   const [inputValue, setInputValue] = useState("");
   const [retrievedCocktails, setRetrievedCocktails] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [allCocktails, setAllCocktails] = useState([]);
   const [preferences, setPreferences] = useState(emptyPreferences);
-  const [isShuffling, setIsShuffling] = useState(false);
-  const [shuffleColor, setShuffleColor] = useState("");
+  const [rouletteResult, setRouletteResult] = useState(null);
   const [expandedCocktails, setExpandedCocktails] = useState({});
 
   const messagesEndRef = useRef(null);
   const sessionIdRef = useRef(createSessionId());
-
-  // Alle Cocktails laden für den Slot-Machine-Effekt
-  useEffect(() => {
-    fetchCocktails()
-      .then((data) => setAllCocktails(data))
-      .catch((err) => console.error("Fehler beim Laden aller Cocktails:", err));
-  }, []);
+  const rouletteRunRef = useRef(0);
 
   // Automatisches Scrollen zum Ende des Chats bei neuen Nachrichten
   const scrollToBottom = () => {
@@ -130,6 +211,19 @@ function App() {
 
   const applyChatData = (data) => {
     setPreferences(data.preferences || emptyPreferences);
+    if (data.type === "random" && data.selected_cocktail) {
+      rouletteRunRef.current += 1;
+      setRouletteResult({
+        id: `${data.selected_cocktail.name}-${rouletteRunRef.current}`,
+        rouletteCocktails: data.roulette_cocktails || [data.selected_cocktail],
+        selectedCocktail: data.selected_cocktail,
+        completed: false,
+      });
+      setRetrievedCocktails([]);
+      setExpandedCocktails({});
+      return;
+    }
+    setRouletteResult(null);
     setRetrievedCocktails(data.cocktails || []);
     if (!data.cocktails || data.cocktails.length === 0) {
       setExpandedCocktails({});
@@ -172,6 +266,7 @@ function App() {
     ]);
     setRetrievedCocktails([]);
     setPreferences(emptyPreferences);
+    setRouletteResult(null);
     setExpandedCocktails({});
     setInputValue("");
     sessionIdRef.current = createSessionId();
@@ -186,7 +281,7 @@ function App() {
   // Funktion zum Senden einer Nachricht
   const handleSend = async (textToSend) => {
     const text = textToSend || inputValue;
-    if (!text.trim()) return;
+    if (!text.trim() || isLoading || (rouletteResult && !rouletteResult.completed)) return;
 
     // Benutzer-Nachricht hinzufügen
     const newMessages = [...messages, { role: "user", content: text }];
@@ -227,79 +322,6 @@ function App() {
             "CocktailGPT konnte gerade keine Antwort erzeugen. Versuch es bitte noch einmal.",
         },
       ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Slot-Machine-Effekt für die zufällige Auswahl von Cocktails
-  const triggerRandomShuffle = async (randomText) => {
-    if (allCocktails.length === 0) {
-      handleSend(randomText);
-      return;
-    }
-
-    setIsShuffling(true);
-    setIsLoading(true);
-
-    const history = messages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
-
-    // Anfrage parallel starten
-    const backendPromise = sendChatMessage({
-      sessionId: sessionIdRef.current,
-      message: randomText,
-      history: history,
-    });
-
-    const colors = ["#ff0055", "#ff9900", "#10b981", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
-    let colorIdx = 0;
-
-    // Mische Cocktails alle 150ms (etwas langsamer für bessere Lesbarkeit)
-    const shuffleInterval = setInterval(() => {
-      const tempCocktails = [];
-      const pool = [...allCocktails];
-      if (pool.length > 0) {
-        const randIdx = Math.floor(Math.random() * pool.length);
-        const selected = pool[randIdx];
-        tempCocktails.push({
-          ...selected,
-          match_score: 99,
-          match_details: ["Zufallsauswahl... 🎲"],
-        });
-      }
-      setRetrievedCocktails(tempCocktails);
-
-      // Wechsle die Farbe synchron zum Cocktail-Wechsel
-      setShuffleColor(colors[colorIdx % colors.length]);
-      colorIdx++;
-    }, 150);
-
-    // Mindestlaufzeit der Animation: 2.4 Sekunden (doppelt so lang wie vorher)
-    const animationTimer = new Promise((resolve) => setTimeout(resolve, 2400));
-
-    try {
-      const [data] = await Promise.all([backendPromise, animationTimer]);
-
-      clearInterval(shuffleInterval);
-      setIsShuffling(false);
-      setShuffleColor("");
-
-      setMessages((prev) => [
-        ...prev,
-        { role: "user", content: randomText },
-        { role: "assistant", content: data.answer || data.message },
-      ]);
-
-      applyChatData(data);
-    } catch (error) {
-      clearInterval(shuffleInterval);
-      setIsShuffling(false);
-      setShuffleColor("");
-      console.error("Fehler beim Mischen:", error);
-      handleSend(randomText);
     } finally {
       setIsLoading(false);
     }
@@ -402,10 +424,11 @@ function App() {
     { label: "🚫 Alkoholfrei", text: "Ich suche einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)", active: () => preferences.alcoholic === false || preferences.strength === "alkoholfrei" },
     { label: "🍋 Sauer", text: "Ich mag saure Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "sauer") },
     { label: "🥥 Ohne Kokos", text: "Ich möchte keinen Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)", active: () => (preferences.disliked_ingredients || []).some((value) => normalize(value).includes("kokos")) },
-    { label: "🎲 Zufällig", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)" },
+    { label: "🎲 Zufällig", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)", random: true },
     { label: "🧹 Reset", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" }
   ];
   const preferenceTags = buildPreferenceTags(preferences);
+  const isRouletteRunning = rouletteResult && !rouletteResult.completed;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -465,7 +488,7 @@ function App() {
                       type="button"
                       className={`preference-tag ${tag.type}`}
                       onClick={() => handleRemovePreference(tag)}
-                      disabled={isLoading}
+                      disabled={isLoading || isRouletteRunning}
                       title={`${tag.label} entfernen`}
                     >
                       <span>{tag.label}</span>
@@ -489,13 +512,13 @@ function App() {
                   onClick={() => {
                     if (s.text === "RESET") {
                       handleReset();
-                    } else if (normalize(s.text).includes("zufallig") || normalize(s.text).includes("zufaellig")) {
-                      triggerRandomShuffle(s.text);
+                    } else if (s.random || isRandomText(s.text)) {
+                      handleSend(s.text);
                     } else {
                       handleSend(s.text);
                     }
                   }}
-                  disabled={isLoading && s.text !== "RESET"}
+                  disabled={(isLoading || isRouletteRunning) && s.text !== "RESET"}
                   style={{
                     color: s.color,
                     borderColor: isActive ? s.color : `${s.color}35`,
@@ -534,12 +557,12 @@ function App() {
                 placeholder="Frag CocktailGPT nach einem Rezept, Geschmack oder Zutaten..."
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || isRouletteRunning}
               />
               <button
                 type="submit"
                 className="send-button"
-                disabled={isLoading || !inputValue.trim()}
+                disabled={isLoading || isRouletteRunning || !inputValue.trim()}
               >
                 Senden ➔
               </button>
@@ -553,8 +576,24 @@ function App() {
             <span>📋</span> Rezeptekatalog ({retrievedCocktails.length})
           </h2>
           
-          {retrievedCocktails.length > 0 ? (
+          {rouletteResult && !rouletteResult.completed ? (
+            <CocktailRoulette
+              key={rouletteResult.id}
+              cocktails={rouletteResult.rouletteCocktails}
+              selectedCocktail={rouletteResult.selectedCocktail}
+              onComplete={() => {
+                setRetrievedCocktails([rouletteResult.selectedCocktail]);
+                setRouletteResult((prev) => prev ? { ...prev, completed: true } : prev);
+              }}
+            />
+          ) : retrievedCocktails.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              {rouletteResult?.completed && (
+                <div className="roulette-winner-banner">
+                  <span>🎉 Dein Cocktail ist:</span>
+                  <strong>{rouletteResult.selectedCocktail.name}</strong>
+                </div>
+              )}
               <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "12px" }}>
                 Empfehlungen aus der Cocktailkarte passend zu den gemerkten Wünschen:
               </div>
@@ -569,14 +608,7 @@ function App() {
                 return (
                   <div
                     key={cocktail.name}
-                    className={`cocktail-card ${isShuffling ? "shuffling-card" : ""}`}
-                    style={isShuffling && shuffleColor ? {
-                      borderColor: shuffleColor,
-                      boxShadow: `0 0 20px ${shuffleColor}50`,
-                      background: `${shuffleColor}10`,
-                      borderWidth: "2px",
-                      borderStyle: "solid"
-                    } : {}}
+                    className="cocktail-card"
                   >
                     <h3>
                       <span>🍹 {cocktail.name}</span>

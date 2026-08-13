@@ -8,6 +8,7 @@ PreferenceStrengthValue = Literal["mild", "mittel", "stark", "hoch", "alkoholfre
 ChatIntent = Literal[
     "conversation",
     "recommendation",
+    "random",
     "preference_update",
     "catalog_query",
     "reset_preferences",
@@ -143,10 +144,12 @@ class CocktailResponse(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    type: Literal["recommendation", "follow_up", "message"] = "recommendation"
+    type: Literal["recommendation", "follow_up", "message", "random"] = "recommendation"
     intent: ChatIntent | None = None
     message: str
     answer: str
     cocktails: list[dict[str, Any]] = Field(default_factory=list)
     criteria: CocktailSearchCriteria | None = None
     preferences: CocktailPreferences = Field(default_factory=CocktailPreferences)
+    roulette_cocktails: list[dict[str, Any]] = Field(default_factory=list)
+    selected_cocktail: dict[str, Any] | None = None

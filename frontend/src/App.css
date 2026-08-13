@@ -446,6 +446,74 @@ body {
   margin: 10px 0;
 }
 
+.roulette-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+  justify-content: center;
+}
+
+.roulette-kicker {
+  color: #d8b4fe;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.roulette-card {
+  border-width: 2px;
+  animation: roulette-pop 0.18s ease-out;
+}
+
+.roulette-card.winner {
+  animation: roulette-winner 0.5s ease-out;
+}
+
+.roulette-winner-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 14px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #a7f3d0;
+  text-align: left;
+}
+
+.roulette-winner-banner strong {
+  color: #ffffff;
+  font-size: 18px;
+}
+
+@keyframes roulette-pop {
+  from {
+    opacity: 0.45;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes roulette-winner {
+  0% {
+    transform: scale(0.98);
+    filter: brightness(1);
+  }
+  55% {
+    transform: scale(1.035);
+    filter: brightness(1.18);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
 .recipe-toggle {
   margin-top: 12px;
   border: 1px solid rgba(168, 85, 247, 0.3);

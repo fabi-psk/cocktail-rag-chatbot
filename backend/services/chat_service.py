@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import random
 import re
 from difflib import SequenceMatcher
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 from llm.llm_client import InvalidLLMOutputError, LLMError, extract_json_object, query_ollama
 from models.cocktail import ChatIntent, ChatMessage, CocktailPreferences, CocktailSearchCriteria, IntentAnalysis
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
-from services.cocktail_service import matches_strength, normalize_text, search_cocktails, term_matches
+from services.cocktail_service import cocktail_contains, matches_strength, normalize_text, search_cocktails, term_matches
 from services.conversation_service import ConversationService, conversation_service
 
 
@@ -122,6 +123,35 @@ def is_cocktail_detail_query(user_message: str, cocktails: list[dict[str, Any]])
     )
 
 
+def is_random_request(user_message: str) -> bool:
+    normalized = normalize_text(user_message).strip()
+    if not normalized:
+        return False
+
+    random_phrases = {
+        "ueberrasch mich",
+        "uberrasch mich",
+        "zufaelliger cocktail",
+        "zufalliger cocktail",
+        "zufaelligen cocktail",
+        "zufalligen cocktail",
+        "zufaellig",
+        "zufallig",
+        "such mir irgendwas aus",
+        "such mir etwas aus",
+        "such was aus",
+        "ich kann mich nicht entscheiden",
+        "mach mir einen zufaelligen cocktail",
+        "mach mir einen zufalligen cocktail",
+        "schlage mir einen zufaelligen cocktail vor",
+        "schlage mir einen zufalligen cocktail vor",
+        "roulette",
+        "nochmal",
+        "nochmal bitte",
+    }
+    return any(phrase in normalized for phrase in random_phrases)
+
+
 def detect_intent(
     user_message: str,
     current_preferences: CocktailPreferences,
@@ -144,12 +174,14 @@ def detect_intent(
     if normalized in short_conversation_replies:
         return "conversation"
 
+    if is_random_request(user_message):
+        return "random"
+
     if is_catalog_query(user_message):
         return "catalog_query"
 
     if is_cocktail_detail_query(user_message, cocktails):
         return "catalog_query"
-
     out_of_scope_markers = {
         "wetter", "fussball", "fußball", "aktien", "programmieren", "python", "politik",
         "pizza", "hotel", "flug", "nachrichten", "hausaufgabe",
@@ -188,8 +220,10 @@ async def analyze_intent_with_llm(
         "content": (
             "Du erkennst die kommunikative Absicht einer Nachricht an einen Cocktail-Assistenten. "
             "Gib ausschliesslich JSON mit intent und answer zurueck. Erlaubte Intents: conversation, recommendation, "
-            "preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
+            "random, preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
             "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
+            "random gilt fuer Wuensche wie 'Ueberrasch mich', 'zufaelliger Cocktail', "
+            "'such mir irgendwas aus' oder 'ich kann mich nicht entscheiden'. "
             "catalog_query prueft nur Fakten, Eigenschaften und Verfuegbarkeit in der Cocktailkarte, ohne etwas zu empfehlen. "
             "Beispiele fuer catalog_query: 'Habt ihr Mojitos?', 'Gibt es alkoholfreie Cocktails?' und "
             "'Welche Cocktails enthalten Rum?', 'Was kostet der Mojito?' oder 'Ist die Pina Colada cremig?'. "
@@ -203,7 +237,7 @@ async def analyze_intent_with_llm(
             "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
             "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
             "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
-            "Bei recommendation, preference_update und catalog_query bleibt answer leer. "
+            "Bei recommendation, random, preference_update und catalog_query bleibt answer leer. "
             "Erfinde keine Cocktaildaten.\n\n"
             f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}"
         ),
@@ -1043,6 +1077,102 @@ def build_local_answer(criteria: CocktailSearchCriteria, matching_cocktails: lis
     return "\n".join(lines)
 
 
+def has_any_preferences(preferences: CocktailPreferences) -> bool:
+    return any([
+        preferences.liked_ingredients,
+        preferences.disliked_ingredients,
+        preferences.spirits,
+        preferences.liked_flavors,
+        preferences.disliked_flavors,
+        preferences.strength,
+        preferences.alcoholic is not None,
+    ])
+
+
+def positive_preference_matches(cocktail: dict[str, Any], preferences: CocktailPreferences) -> bool:
+    positive_groups = [
+        preferences.spirits,
+        preferences.liked_flavors,
+        preferences.liked_ingredients,
+    ]
+    for values in positive_groups:
+        if values and not any(cocktail_contains(cocktail, value) for value in values):
+            return False
+    return True
+
+
+def build_random_response(
+    preferences: CocktailPreferences,
+    cocktails: list[dict[str, Any]],
+    session_id: str | None,
+    conversations: ConversationService,
+) -> dict[str, Any]:
+    criteria = normalize_search_criteria(preferences_to_search_criteria(preferences), "", cocktails)
+    if has_any_preferences(preferences):
+        candidates = search_cocktails(criteria, cocktails, limit=1000)
+        candidates = [
+            cocktail for cocktail in candidates
+            if positive_preference_matches(cocktail, preferences)
+        ]
+    else:
+        candidates = [cocktail.copy() for cocktail in cocktails]
+
+    if not candidates:
+        answer = "Mit deinen aktuellen Ausschluessen habe ich leider nichts zum Auslosen gefunden."
+        return {
+            "type": "follow_up",
+            "intent": "random",
+            "message": answer,
+            "answer": answer,
+            "cocktails": [],
+            "criteria": criteria.model_dump(),
+            "preferences": preferences.model_dump(),
+            "roulette_cocktails": [],
+            "selected_cocktail": None,
+        }
+
+    previous_name = conversations.get_last_random_cocktail(session_id)
+    selection_pool = [
+        cocktail for cocktail in candidates
+        if cocktail.get("name") != previous_name
+    ]
+    if not selection_pool:
+        selection_pool = candidates
+
+    selected = random.choice(selection_pool)
+    conversations.update_last_random_cocktail(session_id, selected.get("name"))
+
+    roulette_pool = candidates[:]
+    random.shuffle(roulette_pool)
+    if selected not in roulette_pool:
+        roulette_pool.append(selected)
+    roulette_cocktails = roulette_pool[:8]
+    if selected not in roulette_cocktails:
+        roulette_cocktails[-1:] = [selected]
+
+    selected_public = public_cocktail(selected)
+    roulette_public = [public_cocktail(cocktail) for cocktail in roulette_cocktails]
+    if has_any_preferences(preferences):
+        answer = (
+            "Ich habe nur Cocktails beruecksichtigt, die zu deinen bisherigen Wuenschen passen. "
+            f"Das Cocktail-Roulette hat entschieden: {selected_public['name']}!"
+        )
+    else:
+        answer = f"Das Cocktail-Roulette hat entschieden: {selected_public['name']}!"
+
+    return {
+        "type": "random",
+        "intent": "random",
+        "message": "Ich lose dir etwas aus!",
+        "answer": answer,
+        "cocktails": [selected_public],
+        "criteria": criteria.model_dump(),
+        "preferences": preferences.model_dump(),
+        "roulette_cocktails": roulette_public,
+        "selected_cocktail": selected_public,
+    }
+
+
 async def build_chat_response(
     user_message: str,
     history: list[ChatMessage] | None = None,
@@ -1079,7 +1209,7 @@ async def build_chat_response(
         }
         is_deterministic_catalog_query = local_intent == "catalog_query"
         try:
-            if is_deterministic_catalog_query:
+            if is_deterministic_catalog_query or local_intent == "random":
                 detected_intent = local_intent
             elif is_short_conversation_reply:
                 detected_intent = local_intent
@@ -1132,6 +1262,9 @@ async def build_chat_response(
         intent = detected_intent
 
     conversations.update_preferences(session_id, preferences)
+
+    if intent == "random":
+        return build_random_response(preferences, cocktails, session_id, conversations)
 
     if should_ask_follow_up(preferences):
         answer = await generate_follow_up(user_message, preferences, history)
