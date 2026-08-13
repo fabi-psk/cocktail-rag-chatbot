@@ -10,6 +10,7 @@ ChatIntent = Literal[
     "conversation",
     "recommendation",
     "preference_update",
+    "catalog_query",
     "cocktail_details",
     "reset_preferences",
     "out_of_scope",

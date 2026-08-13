@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -214,6 +215,14 @@ class ChatServiceTest(unittest.TestCase):
             chat_service.intent_answer_is_usable(repeated, "Gut und dir?", history)
         )
 
+    def test_conversation_rejects_unchecked_cocktail_recommendation(self):
+        analysis = chat_service.IntentAnalysis(
+            intent="conversation",
+            answer="Wie wäre es mit einem erfundenen Super Drink?",
+        )
+
+        self.assertFalse(chat_service.intent_answer_is_usable(analysis, "ne", []))
+
     def test_out_of_scope_question_gets_boundary_response(self):
         response = asyncio.run(
             chat_service.build_chat_response("Wie wird das Wetter?", repository=FakeRepository())
@@ -230,6 +239,93 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "cocktail_details")
         self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
         self.assertIn("8.00 Euro", response["answer"])
+
+    def test_mojito_catalog_query_returns_regular_and_virgin_variants(self):
+        cocktails = COCKTAILS + [
+            {
+                "name": "Mojito",
+                "preis": 7.5,
+                "spirituose": ["Rum"],
+                "geschmack": ["frisch"],
+                "staerke": "mittel",
+                "zutaten": ["Rum", "Limette", "Minze"],
+                "beschreibung": "Klassischer Mojito.",
+            },
+            {
+                "name": "Virgin Mojito",
+                "preis": 5.9,
+                "spirituose": [],
+                "geschmack": ["frisch"],
+                "staerke": "alkoholfrei",
+                "zutaten": ["Limette", "Minze", "Soda"],
+                "beschreibung": "Alkoholfreier Mojito.",
+            },
+        ]
+
+        response = chat_service.build_catalog_query_response(
+            "Habt ihr Mojitos?", cocktails, chat_service.CocktailPreferences()
+        )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertEqual(
+            [item["name"] for item in response["cocktails"]],
+            ["Mojito", "Virgin Mojito"],
+        )
+        self.assertIn("Mojito, Virgin Mojito", response["answer"])
+
+    def test_local_intent_detects_catalog_query(self):
+        intent = chat_service.detect_intent(
+            "Habt ihr Mojitos?",
+            chat_service.CocktailPreferences(),
+            chat_service.CocktailPreferences(),
+            COCKTAILS,
+        )
+
+        self.assertEqual(intent, "catalog_query")
+
+    def test_catalog_query_bypasses_llm_and_keeps_preferences(self):
+        repository = FakeRepository()
+        conversations = ConversationService()
+
+        with patch.object(
+            chat_service,
+            "analyze_intent_with_llm",
+            side_effect=AssertionError("LLM should not classify deterministic catalog queries"),
+        ):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Habt ihr einen Gin Sour?",
+                    repository=repository,
+                    session_id="catalog-session",
+                    conversations=conversations,
+                )
+            )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
+        self.assertEqual(response["preferences"], chat_service.CocktailPreferences().model_dump())
+
+    def test_catalog_query_by_spirit_does_not_store_preferences(self):
+        response = chat_service.build_catalog_query_response(
+            "Welche Cocktails enthalten Gin?", COCKTAILS, chat_service.CocktailPreferences()
+        )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
+        self.assertEqual(response["preferences"]["spirits"], [])
+
+    def test_exact_mojito_detail_prefers_regular_mojito(self):
+        cocktails = COCKTAILS + [
+            {**COCKTAILS[0], "name": "Mojito", "preis": 7.5},
+            {**COCKTAILS[0], "name": "Virgin Mojito", "preis": 5.9},
+        ]
+
+        response = chat_service.build_cocktail_detail_response(
+            "Was kostet der Mojito?", cocktails, chat_service.CocktailPreferences()
+        )
+
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Mojito"])
+        self.assertIn("7.50 Euro", response["answer"])
 
     def test_strong_preference_is_not_misclassified_as_detail_question(self):
         preferences = chat_service.local_update_preferences(
@@ -459,6 +555,22 @@ class ChatServiceTest(unittest.TestCase):
 
         with self.assertRaises(chat_service.InvalidLLMOutputError):
             chat_service.validate_answer_payload(payload, matching_cocktails)
+
+    def test_generated_recommendation_ignores_free_llm_answer(self):
+        async def fake_query_ollama(*args, **kwargs):
+            return json.dumps({
+                "answer": "Ich empfehle den frei erfundenen Galaxy Cocktail.",
+                "cocktail_names": ["Gin Sour"],
+            })
+
+        with patch.object(chat_service, "query_ollama", fake_query_ollama):
+            response = asyncio.run(
+                chat_service.generate_answer("Empfiehl mir etwas", [COCKTAILS[2]])
+            )
+
+        self.assertNotIn("Galaxy Cocktail", response["answer"])
+        self.assertIn("Gin Sour", response["answer"])
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
 
     def test_normalize_search_criteria_infers_fruity_taste_from_message(self):
         criteria = CocktailSearchCriteria()
