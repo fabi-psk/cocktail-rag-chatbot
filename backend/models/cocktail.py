@@ -67,6 +67,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
+    mode: Literal["menu", "home"] = "menu"
 
 
 class PreferenceRemoveRequest(BaseModel):
@@ -187,3 +188,4 @@ class ChatResponse(BaseModel):
     preferences: CocktailPreferences = Field(default_factory=CocktailPreferences)
     roulette_cocktails: list[dict[str, Any]] = Field(default_factory=list)
     selected_cocktail: dict[str, Any] | None = None
+    web_recipes: list[dict[str, Any]] = Field(default_factory=list)

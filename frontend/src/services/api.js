@@ -20,13 +20,14 @@ export function fetchCocktails() {
   return request("/cocktails");
 }
 
-export function sendChatMessage({ sessionId, message, history }) {
+export function sendChatMessage({ sessionId, message, history, mode = "menu" }) {
   return request("/chat", {
     method: "POST",
     body: JSON.stringify({
       session_id: sessionId,
       message,
       history,
+      mode,
     }),
   });
 }

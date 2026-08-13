@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from models.cocktail import ChatRequest, PreferenceRemoveRequest
 from services.chat_service import build_chat_response, build_session_recommendation_response
 from services.conversation_service import conversation_service
+from services.home_recipe_service import build_home_recipe_response
 
 
 router = APIRouter()
@@ -17,6 +18,8 @@ async def chat_search_get(frage: str, session_id: str | None = None):
 
 @router.post("/chat")
 async def chat_search_post(request: ChatRequest):
+    if request.mode == "home":
+        return await build_home_recipe_response(request.message, request.history)
     return await build_chat_response(request.message, request.history, session_id=request.session_id)
 
 

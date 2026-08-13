@@ -19,6 +19,10 @@ const emptyPreferences = {
   alcoholic: null,
 };
 
+const welcomeMessage = (mode) => mode === "home"
+  ? "Willkommen im **Zuhause-Modus**. Nenne mir einen konkreten Cocktail, dann suche ich das Rezept auf einer vertrauenswürdigen Webseite und zeige dir Zutaten, Zubereitung und Quelle."
+  : "Hallo! Ich bin **CocktailGPT**, dein persönlicher Barkeeper-Assistent. 🍹\n\nWelchen Cocktail suchst du heute oder nach welchen Geschmäckern steht dir der Sinn? Beschreibe einfach deinen Wunsch (z.B. *'Ich möchte einen fruchtigen Cocktail mit Rum'* oder *'Ich mag Gin, aber keinen Wodka und kein Kokos'*). Ich schlage dir passende Rezepte vor!";
+
 const normalize = (value) => String(value || "").trim().toLowerCase();
 
 const includesValue = (values, value) =>
@@ -182,11 +186,11 @@ function CocktailRoulette({ cocktails, selectedCocktail, onComplete }) {
 }
 
 function App() {
+  const [mode, setMode] = useState("menu");
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content:
-        "Hallo! Ich bin **CocktailGPT**, dein persönlicher Barkeeper-Assistent. 🍹\n\nWelchen Cocktail suchst du heute oder nach welchen Geschmäckern steht dir der Sinn? Beschreibe einfach deinen Wunsch (z.B. *'Ich möchte einen fruchtigen Cocktail mit Rum'* oder *'Ich mag Gin, aber keinen Wodka und kein Kokos'*). Ich schlage dir passende Rezepte vor!",
+      content: welcomeMessage("menu"),
     },
   ]);
   const [inputValue, setInputValue] = useState("");
@@ -195,6 +199,7 @@ function App() {
   const [preferences, setPreferences] = useState(emptyPreferences);
   const [rouletteResult, setRouletteResult] = useState(null);
   const [expandedCocktails, setExpandedCocktails] = useState({});
+  const [webRecipes, setWebRecipes] = useState([]);
 
   const messagesEndRef = useRef(null);
   const sessionIdRef = useRef(createSessionId());
@@ -210,6 +215,7 @@ function App() {
   }, [messages, isLoading]);
 
   const applyChatData = (data) => {
+    setWebRecipes(data.web_recipes || []);
     setPreferences(data.preferences || emptyPreferences);
     if (data.type === "random" && data.selected_cocktail) {
       rouletteRunRef.current += 1;
@@ -260,14 +266,14 @@ function App() {
     setMessages([
       {
         role: "assistant",
-        content:
-          "Hallo! Ich bin **CocktailGPT**, dein persönlicher Barkeeper-Assistent. 🍹\n\nWelchen Cocktail suchst du heute oder nach welchen Geschmäckern steht dir der Sinn? Beschreibe einfach deinen Wunsch (z.B. *'Ich möchte einen fruchtigen Cocktail mit Rum'* oder *'Ich mag Gin, aber keinen Wodka und kein Kokos'*). Ich schlage dir passende Rezepte vor!",
+        content: welcomeMessage(mode),
       },
     ]);
     setRetrievedCocktails([]);
     setPreferences(emptyPreferences);
     setRouletteResult(null);
     setExpandedCocktails({});
+    setWebRecipes([]);
     setInputValue("");
     sessionIdRef.current = createSessionId();
 
@@ -275,6 +281,25 @@ function App() {
       await resetChatSession(oldSessionId);
     } catch (error) {
       console.error("Fehler beim ZurÃ¼cksetzen der Session:", error);
+    }
+  };
+
+  const handleModeChange = async (nextMode) => {
+    if (nextMode === mode || isLoading) return;
+    const oldSessionId = sessionIdRef.current;
+    setMode(nextMode);
+    setMessages([{ role: "assistant", content: welcomeMessage(nextMode) }]);
+    setRetrievedCocktails([]);
+    setWebRecipes([]);
+    setPreferences(emptyPreferences);
+    setRouletteResult(null);
+    setExpandedCocktails({});
+    setInputValue("");
+    sessionIdRef.current = createSessionId();
+    try {
+      await resetChatSession(oldSessionId);
+    } catch (error) {
+      console.error("Fehler beim Wechseln des Modus:", error);
     }
   };
 
@@ -300,6 +325,7 @@ function App() {
         sessionId: sessionIdRef.current,
         message: text,
         history: history,
+        mode,
       });
 
       // Bot-Antwort hinzufügen
@@ -443,9 +469,27 @@ function App() {
             </div>
           </div>
         </div>
-        <div className="status-badge">
-          <span className="status-dot"></span>
-          KI-Server (Ollama) verbunden
+        <div className="header-actions">
+          <div className="mode-switch" aria-label="CocktailGPT Modus">
+            <button
+              type="button"
+              className={mode === "menu" ? "active" : ""}
+              onClick={() => handleModeChange("menu")}
+            >
+              Bar-Karte
+            </button>
+            <button
+              type="button"
+              className={mode === "home" ? "active" : ""}
+              onClick={() => handleModeChange("home")}
+            >
+              Für Zuhause
+            </button>
+          </div>
+          <div className="status-badge">
+            <span className="status-dot"></span>
+            {mode === "home" ? "Web-Rezepttest aktiv" : "KI-Server (Ollama) verbunden"}
+          </div>
         </div>
       </div>
 
@@ -478,7 +522,7 @@ function App() {
 
           {/* Eingabebereich */}
           <div className="chat-input-area">
-            <div className="preferences-strip">
+            {mode === "menu" && <div className="preferences-strip">
               <div className="preferences-title">Gemerkte Wünsche</div>
               {preferenceTags.length > 0 ? (
                 <div className="preference-tags">
@@ -499,11 +543,16 @@ function App() {
               ) : (
                 <div className="preferences-empty">keine</div>
               )}
-            </div>
+            </div>}
 
             {/* Quick Suggestions Pills */}
             <div className="suggestions-bar">
-              {suggestions.map((s, index) => {
+              {(mode === "home" ? [
+                { label: "Mojito", text: "Wie mache ich einen Mojito?", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)" },
+                { label: "Margarita", text: "Zeig mir das Rezept für eine Margarita", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
+                { label: "Moscow Mule", text: "Welche Zutaten brauche ich für einen Moscow Mule?", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
+                { label: "Zurücksetzen", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" },
+              ] : suggestions).map((s, index) => {
                 const isActive = s.active?.() || false;
                 return (
                 <button
@@ -554,7 +603,9 @@ function App() {
               <input
                 type="text"
                 className="chat-input"
-                placeholder="Frag CocktailGPT nach einem Rezept, Geschmack oder Zutaten..."
+                placeholder={mode === "home"
+                  ? "Welches Cocktailrezept möchtest du zuhause mixen?"
+                  : "Frag CocktailGPT nach einem Rezept, Geschmack oder Zutaten..."}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 disabled={isLoading || isRouletteRunning}
@@ -573,10 +624,49 @@ function App() {
         {/* Rechte Seite: Cocktail-Details Panel */}
         <div className="cocktail-panel">
           <h2 className="panel-title">
-            <span>📋</span> Rezeptekatalog ({retrievedCocktails.length})
+            <span>{mode === "home" ? "🏠" : "📋"}</span>
+            {mode === "home" ? ` Web-Rezept (${webRecipes.length})` : ` Rezeptekatalog (${retrievedCocktails.length})`}
           </h2>
           
-          {rouletteResult && !rouletteResult.completed ? (
+          {mode === "home" ? (
+            webRecipes.length > 0 ? (
+              <div className="web-recipe-list">
+                {webRecipes.map((recipe) => (
+                  <article className="web-recipe-card" key={recipe.source_url}>
+                    <div className="web-recipe-kicker">Direkt von der Quelle extrahiert</div>
+                    <h3>{recipe.name}</h3>
+                    <section>
+                      <strong>Zutaten</strong>
+                      <ul>
+                        {recipe.ingredients.map((ingredient) => <li key={ingredient}>{ingredient}</li>)}
+                      </ul>
+                    </section>
+                    <section>
+                      <strong>Zubereitung</strong>
+                      <ol>
+                        {recipe.instructions.map((step) => <li key={step}>{step}</li>)}
+                      </ol>
+                    </section>
+                    {recipe.garnish?.length > 0 && (
+                      <section>
+                        <strong>Garnitur</strong>
+                        <p>{recipe.garnish.join(" ")}</p>
+                      </section>
+                    )}
+                    <a href={recipe.source_url} target="_blank" rel="noreferrer">
+                      Quelle öffnen: {recipe.source_name}
+                    </a>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="no-cocktails-placeholder">
+                <span style={{ fontSize: "36px", marginBottom: "12px" }}>🌐</span>
+                <p style={{ fontWeight: "600", marginBottom: "4px", color: "#fff" }}>Nenne einen konkreten Cocktail.</p>
+                <p style={{ fontSize: "12px" }}>Das Testsystem extrahiert das Rezept direkt von der IBA-Webseite.</p>
+              </div>
+            )
+          ) : rouletteResult && !rouletteResult.completed ? (
             <CocktailRoulette
               key={rouletteResult.id}
               cocktails={rouletteResult.rouletteCocktails}
