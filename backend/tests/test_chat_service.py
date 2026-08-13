@@ -1,4 +1,5 @@
 import asyncio
+import os
 import unittest
 from unittest.mock import patch
 
@@ -55,14 +56,89 @@ class ChatServiceTest(unittest.TestCase):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.extract_search_criteria("Ich moechte Rum"))
 
-    def test_chat_response_handles_invalid_llm_criteria(self):
+    def test_chat_response_returns_unknown_for_unrecognized_message(self):
         async def fake_update_preferences_with_llm(message, preferences, cocktails):
-            raise chat_service.InvalidLLMOutputError("bad output")
+            raise AssertionError("Unknown messages should not call the LLM")
 
         with patch.object(chat_service, "update_preferences_with_llm", fake_update_preferences_with_llm):
             response = asyncio.run(chat_service.build_chat_response("Blabla", repository=FakeRepository()))
 
         self.assertEqual(response["cocktails"], [])
+        self.assertEqual(response["type"], "message")
+        self.assertEqual(response["intent"], "unknown")
+
+    def test_greeting_does_not_call_llm(self):
+        async def unexpected_llm_call(*args, **kwargs):
+            raise AssertionError("Greeting should not call the LLM")
+
+        with patch.object(chat_service, "update_preferences_with_llm", unexpected_llm_call):
+            response = asyncio.run(
+                chat_service.build_chat_response("Hallo!", repository=FakeRepository())
+            )
+
+        self.assertEqual(response["intent"], "greeting")
+        self.assertEqual(response["cocktails"], [])
+
+    def test_out_of_scope_question_gets_boundary_response(self):
+        response = asyncio.run(
+            chat_service.build_chat_response("Wie wird das Wetter?", repository=FakeRepository())
+        )
+
+        self.assertEqual(response["intent"], "out_of_scope")
+        self.assertIn("nicht zuständig", response["answer"])
+
+    def test_cocktail_detail_returns_only_requested_information(self):
+        response = asyncio.run(
+            chat_service.build_chat_response("Was kostet der Gin Sour?", repository=FakeRepository())
+        )
+
+        self.assertEqual(response["intent"], "cocktail_details")
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
+        self.assertIn("8.00 Euro", response["answer"])
+
+    def test_strong_preference_is_not_misclassified_as_detail_question(self):
+        preferences = chat_service.local_update_preferences(
+            chat_service.CocktailPreferences(), "Ich möchte etwas Starkes", COCKTAILS
+        )
+
+        intent = chat_service.detect_intent(
+            "Ich möchte etwas Starkes", chat_service.CocktailPreferences(), preferences, COCKTAILS
+        )
+
+        self.assertEqual(intent, "preference_update")
+
+    def test_reset_intent_clears_session_preferences(self):
+        conversations = ConversationService()
+        conversations.update_preferences(
+            "reset-me",
+            chat_service.local_update_preferences(
+                conversations.get_preferences("reset-me"), "Ich mag Gin", COCKTAILS
+            ),
+        )
+
+        response = asyncio.run(
+            chat_service.build_chat_response(
+                "Bitte alles zurücksetzen",
+                repository=FakeRepository(),
+                session_id="reset-me",
+                conversations=conversations,
+            )
+        )
+
+        self.assertEqual(response["intent"], "reset_preferences")
+        self.assertEqual(conversations.get_preferences("reset-me").spirits, [])
+
+    def test_intent_routing_can_be_disabled(self):
+        async def fake_update_preferences_with_llm(message, preferences, cocktails):
+            raise chat_service.InvalidLLMOutputError("bad output")
+
+        with patch.dict(os.environ, {"INTENT_ROUTING_ENABLED": "false"}):
+            with patch.object(chat_service, "update_preferences_with_llm", fake_update_preferences_with_llm):
+                response = asyncio.run(
+                    chat_service.build_chat_response("Hallo", repository=FakeRepository())
+                )
+
+        self.assertIsNone(response["intent"])
         self.assertEqual(response["type"], "follow_up")
 
     def test_chat_response_falls_back_for_fruity_without_coconut(self):

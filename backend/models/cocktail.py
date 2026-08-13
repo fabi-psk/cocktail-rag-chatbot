@@ -5,6 +5,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 StrengthValue = Literal["leicht", "mittel", "stark", "hoch", "alkoholfrei"]
 PreferenceStrengthValue = Literal["mild", "mittel", "stark", "hoch", "alkoholfrei"]
+ChatIntent = Literal[
+    "greeting",
+    "recommendation",
+    "preference_update",
+    "cocktail_details",
+    "reset_preferences",
+    "out_of_scope",
+    "unknown",
+]
 
 
 class ChatMessage(BaseModel):
@@ -131,7 +140,8 @@ class CocktailResponse(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    type: Literal["recommendation", "follow_up"] = "recommendation"
+    type: Literal["recommendation", "follow_up", "message"] = "recommendation"
+    intent: ChatIntent | None = None
     message: str
     answer: str
     cocktails: list[dict[str, Any]] = Field(default_factory=list)

@@ -1,16 +1,164 @@
 import json
 import logging
+import os
 import re
 from typing import Any
 
 from llm.llm_client import InvalidLLMOutputError, LLMError, extract_json_object, query_ollama
-from models.cocktail import ChatMessage, CocktailPreferences, CocktailSearchCriteria
+from models.cocktail import ChatIntent, ChatMessage, CocktailPreferences, CocktailSearchCriteria
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
 from services.cocktail_service import matches_strength, normalize_text, search_cocktails, term_matches
 from services.conversation_service import ConversationService, conversation_service
 
 
 logger = logging.getLogger("cocktail-rag")
+
+
+def intent_routing_enabled() -> bool:
+    return os.getenv("INTENT_ROUTING_ENABLED", "true").lower() == "true"
+
+
+def detect_cocktail_name(user_message: str, cocktails: list[dict[str, Any]]) -> str | None:
+    matches = [
+        cocktail.get("name")
+        for cocktail in cocktails
+        if isinstance(cocktail.get("name"), str) and term_matches(cocktail["name"], user_message)
+    ]
+    return max(matches, key=len) if matches else None
+
+
+def detect_intent(
+    user_message: str,
+    current_preferences: CocktailPreferences,
+    updated_preferences: CocktailPreferences,
+    cocktails: list[dict[str, Any]],
+) -> ChatIntent:
+    normalized = normalize_text(user_message).strip()
+    words = set(normalized.split())
+
+    if any(phrase in normalized for phrase in {
+        "von vorne", "alles vergessen", "praeferenzen loeschen", "präferenzen löschen",
+        "auswahl loeschen", "auswahl löschen", "zuruecksetzen", "zurücksetzen", "neu anfangen",
+    }):
+        return "reset_preferences"
+
+    greeting_words = {"hallo", "hi", "hey", "moin", "servus", "danke", "tschuss", "tschuess"}
+    if words and words <= greeting_words:
+        return "greeting"
+
+    cocktail_name = detect_cocktail_name(user_message, cocktails)
+    detail_markers = {
+        "preis", "kostet", "kosten", "zutat", "zutaten", "drin", "enthalten",
+        "rezept", "staerke", "stärke", "stark", "beschreibung", "spirituose",
+    }
+    detail_questions = {
+        "was kostet", "wie teuer", "was ist in", "welche zutaten", "wie stark ist",
+        "informationen zu", "erzaehl mir etwas ueber", "erzähl mir etwas über",
+    }
+    if (
+        cocktail_name and any(marker in normalized for marker in detail_markers)
+    ) or any(question in normalized for question in detail_questions):
+        return "cocktail_details"
+
+    out_of_scope_markers = {
+        "wetter", "fussball", "fußball", "aktien", "programmieren", "python", "politik",
+        "pizza", "hotel", "flug", "nachrichten", "hausaufgabe",
+    }
+    if any(marker in normalized for marker in out_of_scope_markers):
+        return "out_of_scope"
+
+    if updated_preferences != current_preferences:
+        return "preference_update"
+
+    recommendation_markers = {
+        "cocktail", "drink", "empfiehl", "empfehl", "such", "find", "vorschlag",
+        "ueberrasch", "überrasch", "zufall", "trinken", "lust auf", "etwas anderes",
+    }
+    if any(marker in normalized for marker in recommendation_markers):
+        return "recommendation"
+
+    return "unknown"
+
+
+def basic_intent_response(
+    intent: ChatIntent,
+    preferences: CocktailPreferences,
+) -> dict[str, Any]:
+    messages = {
+        "greeting": (
+            "Hallo! Ich bin CocktailGPT. Ich kann dir einen Cocktail empfehlen oder Fragen zu "
+            "Zutaten, Geschmack, Stärke und Preisen beantworten."
+        ),
+        "reset_preferences": (
+            "Ich habe deine bisherigen Vorlieben zurückgesetzt. Wir können mit einer neuen Auswahl starten: "
+            "Magst du es eher fruchtig, sauer, cremig oder stark?"
+        ),
+        "out_of_scope": (
+            "Dafür bin ich nicht zuständig. Ich bin dein Cocktail-Assistent und helfe dir gern bei "
+            "Empfehlungen, Zutaten, Geschmack, Stärke oder Preisen."
+        ),
+        "unknown": (
+            "Ich habe deine Frage leider nicht verstanden. Suchst du eine Cocktail-Empfehlung oder "
+            "Informationen zu einem bestimmten Cocktail?"
+        ),
+    }
+    answer = messages[intent]
+    return {
+        "type": "message",
+        "intent": intent,
+        "message": answer,
+        "answer": answer,
+        "cocktails": [],
+        "criteria": None,
+        "preferences": preferences.model_dump(),
+    }
+
+
+def build_cocktail_detail_response(
+    user_message: str,
+    cocktails: list[dict[str, Any]],
+    preferences: CocktailPreferences,
+) -> dict[str, Any]:
+    cocktail_name = detect_cocktail_name(user_message, cocktails)
+    cocktail = next((item for item in cocktails if item.get("name") == cocktail_name), None)
+    if not cocktail:
+        answer = (
+            "Diesen Cocktail finde ich nicht auf unserer Karte. Nenne mir bitte einen Cocktail aus dem Angebot, "
+            "dann kann ich dir Preis, Zutaten, Geschmack und Stärke nennen."
+        )
+        return {
+            "type": "follow_up",
+            "intent": "cocktail_details",
+            "message": answer,
+            "answer": answer,
+            "cocktails": [],
+            "criteria": None,
+            "preferences": preferences.model_dump(),
+        }
+
+    normalized = normalize_text(user_message)
+    details: list[str] = []
+    if any(term in normalized for term in {"preis", "kostet", "kosten"}):
+        details.append(f"Er kostet {cocktail.get('preis', 0):.2f} Euro.")
+    if any(term in normalized for term in {"zutat", "zutaten", "drin", "enthalten", "rezept"}):
+        details.append("Enthalten sind: " + ", ".join(cocktail.get("zutaten", [])) + ".")
+    if any(term in normalized for term in {"staerke", "stärke", "stark"}):
+        details.append(f"Seine Stärke ist {cocktail.get('staerke', 'nicht angegeben')}.")
+    if any(term in normalized for term in {"beschreibung", "geschmack", "schmeckt"}):
+        details.append(cocktail.get("beschreibung", ""))
+    if not details:
+        details.append(cocktail.get("beschreibung", ""))
+
+    answer = f"{cocktail_name}: " + " ".join(detail for detail in details if detail)
+    return {
+        "type": "message",
+        "intent": "cocktail_details",
+        "message": answer,
+        "answer": answer,
+        "cocktails": [cocktail],
+        "criteria": None,
+        "preferences": preferences.model_dump(),
+    }
 
 
 def public_cocktail(cocktail: dict[str, Any]) -> dict[str, Any]:
@@ -550,6 +698,18 @@ async def build_chat_response(
         }
 
     current_preferences = conversations.get_preferences(session_id)
+    detected_intent: ChatIntent | None = None
+    if intent_routing_enabled():
+        local_preferences = local_update_preferences(current_preferences, user_message, cocktails)
+        detected_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
+        if detected_intent == "reset_preferences":
+            conversations.reset_preferences(session_id)
+            return basic_intent_response(detected_intent, CocktailPreferences())
+        if detected_intent in {"greeting", "out_of_scope", "unknown"}:
+            return basic_intent_response(detected_intent, current_preferences)
+        if detected_intent == "cocktail_details":
+            return build_cocktail_detail_response(user_message, cocktails, current_preferences)
+
     try:
         preferences = await update_preferences_with_llm(user_message, current_preferences, cocktails)
     except InvalidLLMOutputError as exc:
@@ -559,12 +719,17 @@ async def build_chat_response(
         logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
         preferences = local_update_preferences(current_preferences, user_message, cocktails)
 
+    intent: ChatIntent | None = None
+    if intent_routing_enabled():
+        intent = detected_intent
+
     conversations.update_preferences(session_id, preferences)
 
     if should_ask_follow_up(preferences):
         answer = await generate_follow_up(user_message, preferences, history)
         return {
             "type": "follow_up",
+            "intent": intent,
             "message": answer,
             "answer": answer,
             "cocktails": [],
@@ -584,6 +749,7 @@ async def build_chat_response(
         response = {"message": answer, "answer": answer, "cocktails": matching_cocktails}
 
     response["type"] = "recommendation"
+    response["intent"] = intent
     response["preferences"] = preferences.model_dump()
     response["criteria"] = criteria.model_dump()
     return response
