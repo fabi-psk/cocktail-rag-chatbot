@@ -6,7 +6,7 @@ import httpx
 
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "mistral:7b")
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3:8b")
 
 
 class LLMError(RuntimeError):

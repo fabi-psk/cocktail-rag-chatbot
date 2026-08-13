@@ -7,6 +7,7 @@ StrengthValue = Literal["leicht", "mittel", "stark", "hoch", "alkoholfrei"]
 PreferenceStrengthValue = Literal["mild", "mittel", "stark", "hoch", "alkoholfrei"]
 ChatIntent = Literal[
     "greeting",
+    "conversation",
     "recommendation",
     "preference_update",
     "cocktail_details",
@@ -14,6 +15,13 @@ ChatIntent = Literal[
     "out_of_scope",
     "unknown",
 ]
+
+
+class IntentAnalysis(BaseModel):
+    intent: ChatIntent
+    answer: str = ""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ChatMessage(BaseModel):

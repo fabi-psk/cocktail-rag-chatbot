@@ -85,7 +85,7 @@ def term_matches(term: str | None, text: str | None) -> bool:
     if len(term_lower) <= 3:
         return bool(re.search(rf"\b{re.escape(term_lower)}\b", text_lower))
 
-    if term_lower in text_lower or text_lower in term_lower:
+    if term_lower in text_lower or (len(text_lower) >= 4 and text_lower in term_lower):
         return True
 
     if fuzzy_token_match(term_lower, text_lower):

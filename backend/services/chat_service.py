@@ -2,10 +2,11 @@ import json
 import logging
 import os
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from llm.llm_client import InvalidLLMOutputError, LLMError, extract_json_object, query_ollama
-from models.cocktail import ChatIntent, ChatMessage, CocktailPreferences, CocktailSearchCriteria
+from models.cocktail import ChatIntent, ChatMessage, CocktailPreferences, CocktailSearchCriteria, IntentAnalysis
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
 from services.cocktail_service import matches_strength, normalize_text, search_cocktails, term_matches
 from services.conversation_service import ConversationService, conversation_service
@@ -46,6 +47,10 @@ def detect_intent(
     if words and words <= greeting_words:
         return "greeting"
 
+    short_conversation_replies = {"ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok"}
+    if normalized in short_conversation_replies:
+        return "conversation"
+
     cocktail_name = detect_cocktail_name(user_message, cocktails)
     detail_markers = {
         "preis", "kostet", "kosten", "zutat", "zutaten", "drin", "enthalten",
@@ -71,23 +76,146 @@ def detect_intent(
         return "preference_update"
 
     recommendation_markers = {
-        "cocktail", "drink", "empfiehl", "empfehl", "such", "find", "vorschlag",
-        "ueberrasch", "überrasch", "zufall", "trinken", "lust auf", "etwas anderes",
+        "empfiehl", "empfehl", "such", "find", "zeig", "welcher cocktail", "welchen cocktail",
+        "vorschlag", "ueberrasch", "überrasch", "zufall", "lust auf", "etwas anderes",
+        "ich moechte", "ich möchte", "ich haette gern", "ich hätte gern",
     }
     if any(marker in normalized for marker in recommendation_markers):
         return "recommendation"
 
+    if any(word in words for word in {"cocktail", "cocktails", "drink", "drinks"}):
+        return "conversation"
+
+    if any(phrase in normalized for phrase in {"gut und dir", "mir geht es", "mir gehts", "wie geht es dir"}):
+        return "conversation"
+
     return "unknown"
+
+
+async def analyze_intent_with_llm(
+    user_message: str,
+    history: list[ChatMessage] | None,
+    cocktails: list[dict[str, Any]],
+) -> IntentAnalysis:
+    cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
+    messages: list[dict[str, str]] = [{
+        "role": "system",
+        "content": (
+            "Du erkennst die kommunikative Absicht einer Nachricht an einen Cocktail-Assistenten. "
+            "Gib ausschliesslich JSON mit intent und answer zurueck. Erlaubte Intents: greeting, conversation, "
+            "recommendation, preference_update, cocktail_details, reset_preferences, out_of_scope, unknown. "
+            "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
+            "Eine allgemeine Aussage wie 'Ich mag Cocktails' ist conversation, keine recommendation. "
+            "Eine Antwort auf eine vorherige Smalltalk-Frage wie 'gut und dir?' ist conversation, nicht greeting. "
+            "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist preference_update. "
+            "Fragen zu Preis, Zutaten, Geschmack oder Staerke eines konkreten Cocktails sind cocktail_details. "
+            "Bei greeting, conversation, reset_preferences, out_of_scope und unknown schreibst du in answer eine "
+            "kurze, grammatikalisch natuerliche deutsche Antwort. greeting begruesst kurz und fragt direkt nach "
+            "Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Bei conversation reagierst "
+            "du auf den bisherigen Verlauf und leitest mit einer passenden Rueckfrage zum Cocktail-Thema zurueck. "
+            "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
+            "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
+            "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
+            "Bei recommendation, preference_update und cocktail_details bleibt answer leer. "
+            "Erfinde keine Cocktaildaten.\n\n"
+            f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}"
+        ),
+    }]
+    if history:
+        for message in history[-4:]:
+            if message.role in {"user", "assistant"}:
+                messages.append({"role": message.role, "content": message.content})
+    messages.append({"role": "user", "content": user_message})
+
+    parsed = extract_json_object(await query_ollama(messages))
+    try:
+        analysis = IntentAnalysis.model_validate(parsed)
+    except Exception as exc:
+        raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from exc
+    if not intent_answer_is_usable(analysis, user_message, history):
+        raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
+    return analysis
+
+
+def intent_answer_is_usable(
+    analysis: IntentAnalysis,
+    user_message: str = "",
+    history: list[ChatMessage] | None = None,
+) -> bool:
+    answer_intents = {"greeting", "conversation", "reset_preferences", "out_of_scope", "unknown"}
+    if analysis.intent not in answer_intents:
+        return True
+    if not analysis.answer.strip():
+        return False
+
+    normalized_user = normalize_text(user_message)
+    if analysis.intent == "greeting":
+        greeting_words = {"hallo", "hi", "hey", "moin", "servus", "guten", "morgen", "abend", "tag"}
+        if normalized_user and not set(normalized_user.split()) <= greeting_words:
+            return False
+        normalized_answer = normalize_text(analysis.answer)
+        if any(phrase in normalized_answer for phrase in {"wie geht es dir", "wie gehts dir", "wie geht es ihnen"}):
+            return False
+
+    if analysis.intent == "conversation" and "?" not in analysis.answer:
+        return False
+
+    if history:
+        previous_answers = [message.content for message in history if message.role == "assistant"]
+        if previous_answers:
+            current = normalize_text(analysis.answer)
+            previous = normalize_text(previous_answers[-1])
+            if current and previous and SequenceMatcher(None, current, previous).ratio() >= 0.78:
+                return False
+
+    return True
+
+
+async def generate_intent_answer(
+    intent: ChatIntent,
+    user_message: str,
+    history: list[ChatMessage] | None,
+) -> str:
+    messages: list[dict[str, str]] = [{
+        "role": "system",
+        "content": (
+            "Du bist CocktailGPT und antwortest kurz, natuerlich und auf Deutsch. Duze den Nutzer. "
+            f"Die bereits gepruefte Absicht ist: {intent}. "
+            "Reagiere auf die aktuelle Nachricht und den Verlauf, ohne eine vorherige Antwort zu wiederholen. "
+            "Bei greeting oder conversation leitest du freundlich zu Cocktailwuenschen, Geschmacksrichtungen oder "
+            "Zutaten ueber und stellst genau eine passende Frage. Frage nicht nach dem persoenlichen Befinden. "
+            "Nenne bei greeting oder conversation keinen konkreten Cocktail. Konkrete Empfehlungen werden an anderer "
+            "Stelle aus der geprueften Cocktailkarte erzeugt. "
+            "Wenn bereits ein Verlauf existiert, begruesse nicht erneut. Du hilfst dem Nutzer bei der Auswahl und "
+            "forderst den Nutzer niemals auf, dir bei der Auswahl zu helfen. "
+            "Bei out_of_scope erklaerst du knapp, wobei ein Cocktail-Assistent helfen kann. Bei unknown fragst du "
+            "nach, ob eine Empfehlung oder Information zu einem Cocktail gesucht wird. Erfinde keine Cocktaildaten."
+        ),
+    }]
+    if history:
+        for message in history[-4:]:
+            if message.role in {"user", "assistant"}:
+                messages.append({"role": message.role, "content": message.content})
+    messages.append({"role": "user", "content": user_message})
+
+    answer = (await query_ollama(messages, response_format="")).strip()
+    if not answer:
+        raise InvalidLLMOutputError("LLM lieferte keine Intent-Antwort.")
+    return answer
 
 
 def basic_intent_response(
     intent: ChatIntent,
     preferences: CocktailPreferences,
+    generated_answer: str = "",
 ) -> dict[str, Any]:
     messages = {
         "greeting": (
             "Hallo! Ich bin CocktailGPT. Ich kann dir einen Cocktail empfehlen oder Fragen zu "
             "Zutaten, Geschmack, Stärke und Preisen beantworten."
+        ),
+        "conversation": (
+            "Cocktails sind wirklich vielseitig. Magst du sie eher fruchtig, cremig, sauer oder stark?"
         ),
         "reset_preferences": (
             "Ich habe deine bisherigen Vorlieben zurückgesetzt. Wir können mit einer neuen Auswahl starten: "
@@ -102,7 +230,7 @@ def basic_intent_response(
             "Informationen zu einem bestimmten Cocktail?"
         ),
     }
-    answer = messages[intent]
+    answer = generated_answer.strip() or messages[intent]
     return {
         "type": "message",
         "intent": intent,
@@ -416,8 +544,8 @@ def local_update_preferences(
     exclusion_terms = find_terms_after_exclusion_marker(user_message)
     normalized_message = normalize_text(user_message)
     strength_context = any(
-        phrase in normalized_message
-        for phrase in ["nicht so stark", "etwas stark", "starkes", "leichtes", "lieber etwas leicht"]
+        word.startswith(("stark", "leicht", "mild", "kraeftig", "kraftig"))
+        for word in normalized_message.split()
     )
 
     def is_excluded(value: str) -> bool:
@@ -730,25 +858,55 @@ async def build_chat_response(
     current_preferences = conversations.get_preferences(session_id)
     local_preferences = local_update_preferences(current_preferences, user_message, cocktails)
     detected_intent: ChatIntent | None = None
+    generated_intent_answer = ""
     if intent_routing_enabled():
-        detected_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
+        local_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
+        normalized_message = normalize_text(user_message)
+        is_short_conversation_reply = normalized_message in {
+            "ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok",
+        }
+        try:
+            if is_short_conversation_reply:
+                detected_intent = local_intent
+                generated_intent_answer = await generate_intent_answer(
+                    detected_intent, user_message, history
+                )
+            else:
+                analysis = await analyze_intent_with_llm(user_message, history, cocktails)
+                detected_intent = analysis.intent
+                generated_intent_answer = analysis.answer
+        except (LLMError, InvalidLLMOutputError) as exc:
+            logger.warning("LLM intent detection failed, using local fallback: %s", exc)
+            detected_intent = local_intent
+            if detected_intent in {"greeting", "conversation", "out_of_scope", "unknown"}:
+                try:
+                    generated_intent_answer = await generate_intent_answer(
+                        detected_intent, user_message, history
+                    )
+                except (LLMError, InvalidLLMOutputError) as answer_exc:
+                    logger.warning("LLM intent answer failed, using static fallback: %s", answer_exc)
+
         if detected_intent == "reset_preferences":
             conversations.reset_preferences(session_id)
-            return basic_intent_response(detected_intent, CocktailPreferences())
-        if detected_intent in {"greeting", "out_of_scope", "unknown"}:
-            return basic_intent_response(detected_intent, current_preferences)
+            return basic_intent_response(
+                detected_intent, CocktailPreferences(), generated_intent_answer
+            )
+        if detected_intent in {"greeting", "conversation", "out_of_scope", "unknown"}:
+            return basic_intent_response(detected_intent, current_preferences, generated_intent_answer)
         if detected_intent == "cocktail_details":
             return build_cocktail_detail_response(user_message, cocktails, current_preferences)
 
-    try:
-        llm_preferences = await update_preferences_with_llm(user_message, current_preferences, cocktails)
-        preferences = constrain_preferences_to_local_signal(current_preferences, llm_preferences, local_preferences)
-    except InvalidLLMOutputError as exc:
-        logger.warning("LLM criteria validation failed, using local fallback: %s", exc)
-        preferences = local_update_preferences(current_preferences, user_message, cocktails)
-    except LLMError as exc:
-        logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
-        preferences = local_update_preferences(current_preferences, user_message, cocktails)
+    if intent_routing_enabled():
+        preferences = local_preferences
+    else:
+        try:
+            preferences = await update_preferences_with_llm(user_message, current_preferences, cocktails)
+        except InvalidLLMOutputError as exc:
+            logger.warning("LLM criteria validation failed, using local fallback: %s", exc)
+            preferences = local_preferences
+        except LLMError as exc:
+            logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
+            preferences = local_preferences
 
     intent: ChatIntent | None = None
     if intent_routing_enabled():
