@@ -29,26 +29,65 @@ def singular_token(token: str) -> str:
     return token[:-1] if len(token) > 4 and token.endswith("s") else token
 
 
+NAME_MATCH_STOP_WORDS = {
+    "aber", "auch", "das", "dem", "den", "der", "die", "ein", "eine", "einen",
+    "einer", "er", "es", "ist", "mit", "nicht", "oder", "sind", "und", "was",
+}
+
+
+def compact_name_similarity(compact_name: str, message_tokens: list[str], name_length: int) -> float:
+    candidates = list(message_tokens)
+    for size in range(2, min(name_length + 1, len(message_tokens)) + 1):
+        candidates.extend(
+            "".join(message_tokens[index:index + size])
+            for index in range(len(message_tokens) - size + 1)
+        )
+    return max(
+        (SequenceMatcher(None, compact_name, candidate).ratio() for candidate in candidates),
+        default=0.0,
+    )
+
+
 def find_cocktails_by_name(
     user_message: str,
     cocktails: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     normalized_message = normalize_text(user_message)
     compact_message = normalized_message.replace(" ", "")
-    message_tokens = {singular_token(token) for token in normalized_message.split()}
+    ordered_message_tokens = [
+        singular_token(token)
+        for token in normalized_message.split()
+        if token not in NAME_MATCH_STOP_WORDS
+    ]
+    message_tokens = set(ordered_message_tokens)
     ranked: list[tuple[int, int, int, dict[str, Any]]] = []
     for cocktail in cocktails:
         name = cocktail.get("name")
         if not isinstance(name, str):
             continue
         normalized_name = normalize_text(name)
-        name_tokens = [singular_token(token) for token in normalized_name.split()]
-        overlap = sum(token in message_tokens for token in name_tokens)
-        compact_name_match = normalized_name.replace(" ", "") in compact_message
-        if not overlap and not compact_name_match:
+        name_tokens = [
+            singular_token(token)
+            for token in normalized_name.split()
+            if token not in NAME_MATCH_STOP_WORDS
+        ]
+        if not name_tokens:
             continue
-        missing_name_tokens = 0 if compact_name_match else len(name_tokens) - overlap
-        ranked.append((0 if compact_name_match else 1, missing_name_tokens, -overlap, cocktail))
+        overlap = sum(token in message_tokens for token in name_tokens)
+        compact_name = normalized_name.replace(" ", "")
+        compact_name_match = compact_name in compact_message
+        fuzzy_name_match = (
+            not compact_name_match
+            and len(compact_name) >= 5
+            and compact_name_similarity(
+                compact_name, ordered_message_tokens, len(normalized_name.split())
+            ) >= 0.86
+        )
+        if not overlap and not compact_name_match and not fuzzy_name_match:
+            continue
+        missing_name_tokens = 0 if compact_name_match or fuzzy_name_match else len(name_tokens) - overlap
+        match_rank = 0 if compact_name_match else 1 if fuzzy_name_match else 2
+        ranked.append((match_rank, missing_name_tokens, -overlap, cocktail))
 
     ranked.sort(key=lambda item: (item[0], item[1], item[2], len(item[3].get("name", ""))))
     return [item[3] for item in ranked]
@@ -215,12 +254,20 @@ async def analyze_intent_with_llm(
     cocktails: list[dict[str, Any]],
 ) -> IntentAnalysis:
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
+    values = preference_values(cocktails)
     messages: list[dict[str, str]] = [{
         "role": "system",
         "content": (
-            "Du erkennst die kommunikative Absicht einer Nachricht an einen Cocktail-Assistenten. "
-            "Gib ausschliesslich JSON mit intent und answer zurueck. Erlaubte Intents: conversation, recommendation, "
+            "Du interpretierst die aktuelle Nachricht eines Cocktail-Assistenten semantisch im Kontext des Verlaufs. "
+            "Du beantwortest keine Cocktailfrage selbst und erfindest keine Fakten. "
+            "Gib ausschliesslich JSON mit genau diesen Feldern zurueck: intent, action, cocktail_name, attribute, "
+            "value, confidence, answer. Erlaubte Intents: conversation, recommendation, "
             "random, preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
+            "Erlaubte actions: respond, recommend, random, update_preferences, check_availability, check_attribute, "
+            "list_catalog, explain_recommendation, reset, reject, clarify. "
+            "attribute ist null oder availability, price, ingredients, flavor, strength, description, recipe. "
+            "confidence ist eine Zahl von 0 bis 1. Nutze den Verlauf, um Pronomen wie 'ihn' aufzuloesen. "
+            "Normalisiere einen erkannten Cocktailnamen auf einen Namen aus COCKTAILNAMEN_DER_KARTE. "
             "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
             "random gilt fuer Wuensche wie 'Ueberrasch mich', 'zufaelliger Cocktail', "
             "'such mir irgendwas aus' oder 'ich kann mich nicht entscheiden'. "
@@ -238,8 +285,16 @@ async def analyze_intent_with_llm(
             "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
             "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
             "Bei recommendation, random, preference_update und catalog_query bleibt answer leer. "
-            "Erfinde keine Cocktaildaten.\n\n"
-            f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}"
+            "Beispiele: 'Ist der pinacolade cremig?' bedeutet intent catalog_query, action check_attribute, "
+            "cocktail_name Pina Colada, attribute flavor, value cremig. "
+            "'Habt ihr Mojitos?' bedeutet catalog_query/check_availability. "
+            "'Ueberrasch mich' bedeutet intent random, action random. "
+            "'Wieso hast du ihn nicht vorgeschlagen?' bedeutet catalog_query/explain_recommendation und nutzt den Verlauf. "
+            "Bei Mehrdeutigkeit nutze action clarify, intent unknown und erklaere die Rueckfrage in answer.\n\n"
+            f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}\n"
+            f"GESCHMACKSWERTE: {json.dumps(values['flavors'], ensure_ascii=False)}\n"
+            f"SPIRITUOSEN: {json.dumps(values['spirits'], ensure_ascii=False)}\n"
+            f"ZUTATEN: {json.dumps(values['ingredients'], ensure_ascii=False)}"
         ),
     }]
     if history:
@@ -256,6 +311,72 @@ async def analyze_intent_with_llm(
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
     return analysis
+
+
+def canonical_cocktail_name(value: str | None, cocktails: list[dict[str, Any]]) -> str | None:
+    if not value:
+        return None
+    matches = find_cocktails_by_name(value, cocktails)
+    return matches[0].get("name") if matches else None
+
+
+def normalize_interpretation(
+    analysis: IntentAnalysis,
+    cocktails: list[dict[str, Any]],
+    history: list[ChatMessage] | None,
+) -> IntentAnalysis:
+    cocktail_name = canonical_cocktail_name(analysis.cocktail_name, cocktails)
+    if not cocktail_name and analysis.action in {"check_attribute", "explain_recommendation"} and history:
+        for message in reversed(history[-6:]):
+            cocktail_name = detect_cocktail_name(message.content, cocktails)
+            if cocktail_name:
+                break
+
+    value = analysis.value
+    if analysis.attribute == "flavor":
+        value = canonical_value(value, unique_text_values(cocktails, "geschmack"))
+    elif analysis.attribute == "ingredients":
+        value = canonical_value(value, unique_text_values(cocktails, "zutaten"))
+    elif analysis.attribute == "strength":
+        value = canonical_value(value, unique_text_values(cocktails, "staerke"))
+
+    return analysis.model_copy(update={"cocktail_name": cocktail_name, "value": value})
+
+
+def interpreted_catalog_message(analysis: IntentAnalysis, original_message: str) -> str:
+    name = analysis.cocktail_name
+    if analysis.action == "check_availability" and name:
+        return f"Habt ihr {name}?"
+    if analysis.action == "check_attribute" and name:
+        if analysis.attribute == "price":
+            return f"Was kostet {name}?"
+        if analysis.attribute in {"ingredients", "recipe"}:
+            return f"Welche Zutaten sind in {name}?"
+        if analysis.attribute == "strength":
+            return f"Wie stark ist {name}?"
+        if analysis.attribute == "flavor" and analysis.value:
+            return f"Ist {name} {analysis.value}?"
+        if analysis.attribute in {"flavor", "description"}:
+            return f"Wie schmeckt {name}?"
+    return original_message
+
+
+def interpretation_clarification_response(
+    analysis: IntentAnalysis,
+    preferences: CocktailPreferences,
+) -> dict[str, Any]:
+    answer = analysis.answer.strip() or (
+        "Ich bin mir nicht sicher, was ich prüfen soll. Nenne mir bitte den Cocktail und die gewünschte Information."
+    )
+    return {
+        "type": "follow_up",
+        "intent": "unknown",
+        "message": answer,
+        "answer": answer,
+        "cocktails": [],
+        "criteria": None,
+        "preferences": preferences.model_dump(),
+    }
 
 
 def intent_answer_is_usable(
@@ -763,7 +884,30 @@ def explicitly_mentions_value(user_message: str, value: str) -> bool:
     normalized_value = normalize_text(value)
     if not normalized_value:
         return False
-    return bool(re.search(rf"\b{re.escape(normalized_value)}\b", normalized_message))
+    if re.search(rf"\b{re.escape(normalized_value)}\b", normalized_message):
+        return True
+    if " " in normalized_value:
+        return False
+
+    message_tokens = normalized_message.split()
+    inflection_suffixes = ("es", "en", "er", "em", "e", "n", "s")
+    regular_inflection = any(
+        token.startswith(normalized_value)
+        and token[len(normalized_value):] in inflection_suffixes
+        for token in message_tokens
+    )
+    if regular_inflection:
+        return True
+
+    # German drops the "e" in adjectives such as "sauer" -> "Saures".
+    if normalized_value.endswith("er"):
+        adjective_stem = normalized_value[:-2] + "r"
+        return any(
+            token.startswith(adjective_stem)
+            and token[len(adjective_stem):] in inflection_suffixes
+            for token in message_tokens
+        )
+    return False
 
 
 def local_update_preferences(
@@ -800,7 +944,7 @@ def local_update_preferences(
             or normalized_flavor == "leicht"
         ):
             continue
-        if explicitly_mentions_value(user_message, flavor) or term_matches(flavor, user_message):
+        if explicitly_mentions_value(user_message, flavor):
             if is_excluded(flavor):
                 preferences.liked_flavors = [value for value in preferences.liked_flavors if normalize_text(value) != normalize_text(flavor)]
                 preferences.disliked_flavors.append(flavor)
@@ -1201,25 +1345,17 @@ async def build_chat_response(
     local_preferences = local_update_preferences(current_preferences, user_message, cocktails)
     detected_intent: ChatIntent | None = None
     generated_intent_answer = ""
+    interpretation: IntentAnalysis | None = None
     if intent_routing_enabled():
         local_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
-        normalized_message = normalize_text(user_message)
-        is_short_conversation_reply = normalized_message in {
-            "ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok",
-        }
-        is_deterministic_catalog_query = local_intent == "catalog_query"
         try:
-            if is_deterministic_catalog_query or local_intent == "random":
-                detected_intent = local_intent
-            elif is_short_conversation_reply:
-                detected_intent = local_intent
-                generated_intent_answer = await generate_intent_answer(
-                    detected_intent, user_message, history
-                )
-            else:
-                analysis = await analyze_intent_with_llm(user_message, history, cocktails)
-                detected_intent = analysis.intent
-                generated_intent_answer = analysis.answer
+            interpretation = normalize_interpretation(
+                await analyze_intent_with_llm(user_message, history, cocktails),
+                cocktails,
+                history,
+            )
+            detected_intent = interpretation.intent
+            generated_intent_answer = interpretation.answer
         except (LLMError, InvalidLLMOutputError) as exc:
             logger.warning("LLM intent detection failed, using local fallback: %s", exc)
             detected_intent = local_intent
@@ -1231,6 +1367,11 @@ async def build_chat_response(
                 except (LLMError, InvalidLLMOutputError) as answer_exc:
                     logger.warning("LLM intent answer failed, using static fallback: %s", answer_exc)
 
+        if interpretation and (
+            interpretation.action == "clarify" or interpretation.confidence < 0.55
+        ):
+            return interpretation_clarification_response(interpretation, current_preferences)
+
         if detected_intent == "reset_preferences":
             conversations.reset_preferences(session_id)
             return basic_intent_response(
@@ -1241,12 +1382,29 @@ async def build_chat_response(
                 detected_intent, current_preferences, generated_intent_answer, user_message
             )
         if detected_intent == "catalog_query":
+            interpreted_message = (
+                interpreted_catalog_message(interpretation, user_message)
+                if interpretation
+                else user_message
+            )
             return build_catalog_query_response(
-                user_message, cocktails, current_preferences, history
+                interpreted_message, cocktails, current_preferences, history
             )
 
     if intent_routing_enabled():
-        preferences = local_preferences
+        if interpretation:
+            try:
+                preferences = await update_preferences_with_llm(
+                    user_message, current_preferences, cocktails
+                )
+                preferences = constrain_preferences_to_local_signal(
+                    current_preferences, preferences, local_preferences
+                )
+            except (InvalidLLMOutputError, LLMError) as exc:
+                logger.warning("LLM preference interpretation failed, using local fallback: %s", exc)
+                preferences = local_preferences
+        else:
+            preferences = local_preferences
     else:
         try:
             preferences = await update_preferences_with_llm(user_message, current_preferences, cocktails)

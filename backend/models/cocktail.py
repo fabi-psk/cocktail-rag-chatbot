@@ -15,11 +15,38 @@ ChatIntent = Literal[
     "out_of_scope",
     "unknown",
 ]
+InterpretationAction = Literal[
+    "respond",
+    "recommend",
+    "random",
+    "update_preferences",
+    "check_availability",
+    "check_attribute",
+    "list_catalog",
+    "explain_recommendation",
+    "reset",
+    "reject",
+    "clarify",
+]
+CatalogAttribute = Literal[
+    "availability",
+    "price",
+    "ingredients",
+    "flavor",
+    "strength",
+    "description",
+    "recipe",
+]
 
 
 class IntentAnalysis(BaseModel):
     intent: ChatIntent
     answer: str = ""
+    action: InterpretationAction = "respond"
+    cocktail_name: str | None = None
+    attribute: CatalogAttribute | None = None
+    value: str | None = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
     model_config = ConfigDict(extra="forbid")
 

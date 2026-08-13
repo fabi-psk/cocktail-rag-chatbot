@@ -304,14 +304,23 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(intent, "catalog_query")
 
-    def test_catalog_query_bypasses_llm_and_keeps_preferences(self):
+    def test_catalog_query_uses_llm_interpretation_and_keeps_preferences(self):
         repository = FakeRepository()
         conversations = ConversationService()
+
+        async def interpreted_catalog_query(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="catalog_query",
+                action="check_availability",
+                cocktail_name="Gin Sour",
+                attribute="availability",
+                confidence=0.98,
+            )
 
         with patch.object(
             chat_service,
             "analyze_intent_with_llm",
-            side_effect=AssertionError("LLM should not classify deterministic catalog queries"),
+            interpreted_catalog_query,
         ):
             response = asyncio.run(
                 chat_service.build_chat_response(
@@ -373,7 +382,28 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["answer"], "Ja, Pina Colada ist laut unserer Karte cremig.")
         self.assertEqual(response["preferences"]["liked_flavors"], [])
 
-    def test_flavor_fact_question_bypasses_llm_and_does_not_store_flavor(self):
+    def test_typo_name_does_not_match_cocktail_via_common_word(self):
+        cocktails = COCKTAILS + [
+            {
+                **COCKTAILS[0],
+                "name": "Pina Colada",
+                "geschmack": ["süß", "fruchtig", "cremig"],
+            },
+            {
+                **COCKTAILS[2],
+                "name": "Rotkäppchen ist Sauer",
+                "geschmack": ["fruchtig", "sauer"],
+            },
+        ]
+
+        response = chat_service.build_catalog_query_response(
+            "Ist der pinacolade cremig?", cocktails, chat_service.CocktailPreferences()
+        )
+
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Pina Colada"])
+        self.assertEqual(response["answer"], "Ja, Pina Colada ist laut unserer Karte cremig.")
+
+    def test_flavor_fact_question_uses_llm_plan_and_does_not_store_flavor(self):
         pina_colada = {
             **COCKTAILS[0],
             "name": "Pina Colada",
@@ -384,10 +414,20 @@ class ChatServiceTest(unittest.TestCase):
             def list_all(self):
                 return COCKTAILS + [pina_colada]
 
+        async def interpreted_flavor_query(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="catalog_query",
+                action="check_attribute",
+                cocktail_name="Pina Colada",
+                attribute="flavor",
+                value="cremig",
+                confidence=0.99,
+            )
+
         with patch.object(
             chat_service,
             "analyze_intent_with_llm",
-            side_effect=AssertionError("LLM should not override deterministic detail questions"),
+            interpreted_flavor_query,
         ):
             response = asyncio.run(
                 chat_service.build_chat_response(
@@ -401,6 +441,79 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "catalog_query")
         self.assertIn("Ja, Pina Colada", response["answer"])
         self.assertEqual(response["preferences"]["liked_flavors"], [])
+
+    def test_low_confidence_interpretation_asks_instead_of_guessing(self):
+        async def uncertain_interpretation(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="unknown",
+                action="clarify",
+                confidence=0.31,
+                answer="Meinst du Pina Colada oder einen anderen Cocktail?",
+            )
+
+        with patch.object(
+            chat_service, "analyze_intent_with_llm", uncertain_interpretation
+        ):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ist der Colada cremig?", repository=FakeRepository()
+                )
+            )
+
+        self.assertEqual(response["type"], "follow_up")
+        self.assertEqual(response["intent"], "unknown")
+        self.assertEqual(
+            response["answer"], "Meinst du Pina Colada oder einen anderen Cocktail?"
+        )
+
+    def test_llm_first_recommendation_cannot_infer_unmentioned_ingredient(self):
+        async def recommendation_interpretation(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="recommendation",
+                action="recommend",
+                value="cremig",
+                confidence=0.96,
+            )
+
+        async def inferred_preferences(*args, **kwargs):
+            return chat_service.CocktailPreferences(
+                liked_flavors=["cremig"], liked_ingredients=["Sahne"]
+            )
+
+        async def grounded_answer(user_message, matching_cocktails, history=None):
+            return {"message": "ok", "answer": "ok", "cocktails": matching_cocktails}
+
+        with patch.object(
+            chat_service, "analyze_intent_with_llm", recommendation_interpretation
+        ):
+            with patch.object(
+                chat_service, "update_preferences_with_llm", inferred_preferences
+            ):
+                with patch.object(chat_service, "generate_answer", grounded_answer):
+                    response = asyncio.run(
+                        chat_service.build_chat_response(
+                            "Empfiehl mir etwas Cremiges", repository=FakeRepository()
+                        )
+                    )
+
+        self.assertEqual(response["intent"], "recommendation")
+        self.assertEqual(response["preferences"]["liked_flavors"], ["cremig"])
+        self.assertEqual(response["preferences"]["liked_ingredients"], [])
+
+    def test_polite_request_does_not_match_bitter_flavor(self):
+        cocktails = COCKTAILS + [{
+            **COCKTAILS[0],
+            "name": "Bitter Drink",
+            "geschmack": ["leicht bitter"],
+        }]
+
+        preferences = chat_service.local_update_preferences(
+            chat_service.CocktailPreferences(),
+            "Empfiehl mir bitte etwas Cremiges",
+            cocktails,
+        )
+
+        self.assertEqual(preferences.liked_flavors, ["cremig"])
 
     def test_recommendation_explanation_resolves_pronoun_without_excluding_flavor(self):
         pina_colada = {
