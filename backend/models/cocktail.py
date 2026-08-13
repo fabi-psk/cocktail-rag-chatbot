@@ -37,6 +37,12 @@ CatalogAttribute = Literal[
     "description",
     "recipe",
 ]
+ContextMode = Literal[
+    "new_query",
+    "previous_cocktail",
+    "previous_preferences",
+    "unclear",
+]
 
 
 class IntentAnalysis(BaseModel):
@@ -46,6 +52,7 @@ class IntentAnalysis(BaseModel):
     cocktail_name: str | None = None
     attribute: CatalogAttribute | None = None
     value: str | None = None
+    context_mode: ContextMode = "unclear"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
     model_config = ConfigDict(extra="forbid")

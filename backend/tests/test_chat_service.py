@@ -466,6 +466,84 @@ class ChatServiceTest(unittest.TestCase):
             response["answer"], "Meinst du Pina Colada oder einen anderen Cocktail?"
         )
 
+    def test_catalog_flavor_request_does_not_reuse_previous_cocktail(self):
+        async def misclassified_catalog_list(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="catalog_query",
+                action="check_attribute",
+                attribute="flavor",
+                value="cremig",
+                context_mode="new_query",
+                confidence=0.8,
+            )
+
+        history = [
+            chat_service.ChatMessage(role="user", content="Ist der Gin Sour auf der Karte?"),
+            chat_service.ChatMessage(role="assistant", content="Ja, Gin Sour ist auf der Karte."),
+        ]
+        with patch.object(
+            chat_service, "analyze_intent_with_llm", misclassified_catalog_list
+        ):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Okay, und habt ihr auch etwas Cremiges?",
+                    history=history,
+                    repository=FakeRepository(),
+                )
+            )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertEqual(
+            [cocktail["name"] for cocktail in response["cocktails"]],
+            ["Caribbean Dream"],
+        )
+        self.assertNotIn("Gin Sour ist", response["answer"])
+
+    def test_invalid_llm_attribute_is_inferred_from_catalog_value(self):
+        sanitized = chat_service.sanitize_interpretation_payload(
+            {
+                "intent": "catalog_query",
+                "action": "check_attribute",
+                "attribute": "value",
+                "value": "cremig",
+                "context_mode": "new_search",
+                "confidence": 0.8,
+                "answer": "",
+            },
+            COCKTAILS,
+        )
+
+        self.assertEqual(sanitized["attribute"], "flavor")
+        self.assertEqual(sanitized["context_mode"], "new_query")
+
+    def test_previous_cocktail_mode_resolves_reference_from_history(self):
+        async def previous_cocktail_query(*args, **kwargs):
+            return chat_service.IntentAnalysis(
+                intent="catalog_query",
+                action="check_attribute",
+                attribute="flavor",
+                value="sauer",
+                context_mode="previous_cocktail",
+                confidence=0.94,
+            )
+
+        history = [
+            chat_service.ChatMessage(role="user", content="Habt ihr einen Gin Sour?"),
+            chat_service.ChatMessage(role="assistant", content="Ja, Gin Sour ist auf der Karte."),
+        ]
+        with patch.object(
+            chat_service, "analyze_intent_with_llm", previous_cocktail_query
+        ):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ist der auch sauer?", history=history, repository=FakeRepository()
+                )
+            )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
+        self.assertIn("Ja, Gin Sour", response["answer"])
+
     def test_llm_first_recommendation_cannot_infer_unmentioned_ingredient(self):
         async def recommendation_interpretation(*args, **kwargs):
             return chat_service.IntentAnalysis(

@@ -261,11 +261,16 @@ async def analyze_intent_with_llm(
             "Du interpretierst die aktuelle Nachricht eines Cocktail-Assistenten semantisch im Kontext des Verlaufs. "
             "Du beantwortest keine Cocktailfrage selbst und erfindest keine Fakten. "
             "Gib ausschliesslich JSON mit genau diesen Feldern zurueck: intent, action, cocktail_name, attribute, "
-            "value, confidence, answer. Erlaubte Intents: conversation, recommendation, "
+            "value, context_mode, confidence, answer. Erlaubte Intents: conversation, recommendation, "
             "random, preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
             "Erlaubte actions: respond, recommend, random, update_preferences, check_availability, check_attribute, "
             "list_catalog, explain_recommendation, reset, reject, clarify. "
             "attribute ist null oder availability, price, ingredients, flavor, strength, description, recipe. "
+            "context_mode ist new_query, previous_cocktail, previous_preferences oder unclear. "
+            "new_query bedeutet eine neue Suche, zum Beispiel 'Habt ihr auch etwas Cremiges?'. "
+            "previous_cocktail gilt nur bei einem klaren Bezug wie 'Ist der cremig?' oder 'Was kostet er?'. "
+            "previous_preferences bedeutet, dass bisher gemerkte Wuensche weiter gelten sollen. "
+            "Wenn der Bezug nicht sicher erkennbar ist, nutze unclear und action clarify. "
             "confidence ist eine Zahl von 0 bis 1. Nutze den Verlauf, um Pronomen wie 'ihn' aufzuloesen. "
             "Normalisiere einen erkannten Cocktailnamen auf einen Namen aus COCKTAILNAMEN_DER_KARTE. "
             "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
@@ -286,8 +291,10 @@ async def analyze_intent_with_llm(
             "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
             "Bei recommendation, random, preference_update und catalog_query bleibt answer leer. "
             "Beispiele: 'Ist der pinacolade cremig?' bedeutet intent catalog_query, action check_attribute, "
-            "cocktail_name Pina Colada, attribute flavor, value cremig. "
-            "'Habt ihr Mojitos?' bedeutet catalog_query/check_availability. "
+            "cocktail_name Pina Colada, attribute flavor, value cremig, context_mode new_query. "
+            "'Habt ihr Mojitos?' bedeutet catalog_query/check_availability/context_mode new_query. "
+            "'Habt ihr auch etwas Cremiges?' bedeutet catalog_query/list_catalog, value cremig, context_mode new_query. "
+            "'Ist der auch cremig?' bedeutet catalog_query/check_attribute/context_mode previous_cocktail. "
             "'Ueberrasch mich' bedeutet intent random, action random. "
             "'Wieso hast du ihn nicht vorgeschlagen?' bedeutet catalog_query/explain_recommendation und nutzt den Verlauf. "
             "Bei Mehrdeutigkeit nutze action clarify, intent unknown und erklaere die Rueckfrage in answer.\n\n"
@@ -303,7 +310,9 @@ async def analyze_intent_with_llm(
                 messages.append({"role": message.role, "content": message.content})
     messages.append({"role": "user", "content": user_message})
 
-    parsed = extract_json_object(await query_ollama(messages))
+    parsed = sanitize_interpretation_payload(
+        extract_json_object(await query_ollama(messages)), cocktails
+    )
     try:
         analysis = IntentAnalysis.model_validate(parsed)
     except Exception as exc:
@@ -311,6 +320,50 @@ async def analyze_intent_with_llm(
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
     return analysis
+
+
+def sanitize_interpretation_payload(
+    parsed: dict[str, Any],
+    cocktails: list[dict[str, Any]],
+) -> dict[str, Any]:
+    allowed_attributes = {
+        "availability", "price", "ingredients", "flavor", "strength", "description", "recipe",
+    }
+    attribute = parsed.get("attribute")
+    value = parsed.get("value")
+    if attribute not in allowed_attributes:
+        if canonical_value(value, unique_text_values(cocktails, "geschmack")):
+            attribute = "flavor"
+        elif canonical_value(value, unique_text_values(cocktails, "zutaten")):
+            attribute = "ingredients"
+        elif canonical_value(value, unique_text_values(cocktails, "staerke")):
+            attribute = "strength"
+        else:
+            attribute = None
+
+    context_aliases = {
+        "new": "new_query",
+        "new_search": "new_query",
+        "previous": "previous_cocktail",
+        "previous_query": "previous_cocktail",
+        "preferences": "previous_preferences",
+    }
+    context_mode = context_aliases.get(parsed.get("context_mode"), parsed.get("context_mode"))
+    if context_mode not in {
+        "new_query", "previous_cocktail", "previous_preferences", "unclear",
+    }:
+        context_mode = "unclear"
+
+    return {
+        "intent": parsed.get("intent"),
+        "answer": parsed.get("answer", ""),
+        "action": parsed.get("action", "respond"),
+        "cocktail_name": parsed.get("cocktail_name"),
+        "attribute": attribute,
+        "value": value,
+        "context_mode": context_mode,
+        "confidence": parsed.get("confidence", 1.0),
+    }
 
 
 def canonical_cocktail_name(value: str | None, cocktails: list[dict[str, Any]]) -> str | None:
@@ -322,11 +375,16 @@ def canonical_cocktail_name(value: str | None, cocktails: list[dict[str, Any]]) 
 
 def normalize_interpretation(
     analysis: IntentAnalysis,
+    user_message: str,
     cocktails: list[dict[str, Any]],
     history: list[ChatMessage] | None,
 ) -> IntentAnalysis:
     cocktail_name = canonical_cocktail_name(analysis.cocktail_name, cocktails)
-    if not cocktail_name and analysis.action in {"check_attribute", "explain_recommendation"} and history:
+    should_resolve_from_history = (
+        analysis.action == "explain_recommendation"
+        or analysis.context_mode == "previous_cocktail"
+    )
+    if not cocktail_name and should_resolve_from_history and history:
         for message in reversed(history[-6:]):
             cocktail_name = detect_cocktail_name(message.content, cocktails)
             if cocktail_name:
@@ -340,7 +398,18 @@ def normalize_interpretation(
     elif analysis.attribute == "strength":
         value = canonical_value(value, unique_text_values(cocktails, "staerke"))
 
-    return analysis.model_copy(update={"cocktail_name": cocktail_name, "value": value})
+    action = analysis.action
+    if action == "check_attribute" and not cocktail_name:
+        if analysis.context_mode == "new_query" and value:
+            action = "list_catalog"
+        else:
+            action = "clarify"
+
+    return analysis.model_copy(update={
+        "action": action,
+        "cocktail_name": cocktail_name,
+        "value": value,
+    })
 
 
 def interpreted_catalog_message(analysis: IntentAnalysis, original_message: str) -> str:
@@ -1351,6 +1420,7 @@ async def build_chat_response(
         try:
             interpretation = normalize_interpretation(
                 await analyze_intent_with_llm(user_message, history, cocktails),
+                user_message,
                 cocktails,
                 history,
             )
