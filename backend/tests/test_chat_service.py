@@ -4,6 +4,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from models.cocktail import CocktailSearchCriteria
 from services import chat_service
 from services.conversation_service import ConversationService
@@ -80,18 +82,18 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["type"], "message")
         self.assertEqual(response["intent"], "unknown")
 
-    def test_greeting_uses_generated_llm_answer(self):
-        async def generated_greeting(*args, **kwargs):
+    def test_greeting_is_handled_as_conversation(self):
+        async def generated_conversation(*args, **kwargs):
             return chat_service.IntentAnalysis(
-                intent="greeting", answer="Schön, dass du da bist. Worauf hast du Lust?"
+                intent="conversation", answer="Schön, dass du da bist. Worauf hast du Lust?"
             )
 
-        with patch.object(chat_service, "analyze_intent_with_llm", generated_greeting):
+        with patch.object(chat_service, "analyze_intent_with_llm", generated_conversation):
             response = asyncio.run(
                 chat_service.build_chat_response("Hallo!", repository=FakeRepository())
             )
 
-        self.assertEqual(response["intent"], "greeting")
+        self.assertEqual(response["intent"], "conversation")
         self.assertEqual(response["answer"], "Schön, dass du da bist. Worauf hast du Lust?")
         self.assertEqual(response["cocktails"], [])
 
@@ -133,26 +135,29 @@ class ChatServiceTest(unittest.TestCase):
         self.assertFalse(chat_service.intent_answer_is_usable(incomplete))
         self.assertTrue(chat_service.intent_answer_is_usable(complete))
 
-    def test_follow_up_reply_cannot_be_classified_as_greeting(self):
+    def test_greeting_conversation_does_not_ask_about_personal_wellbeing(self):
         analysis = chat_service.IntentAnalysis(
-            intent="greeting", answer="Hallo! Wie geht es dir heute?"
+            intent="conversation", answer="Hallo! Wie geht es dir heute?"
         )
-        history = [
-            chat_service.ChatMessage(role="assistant", content="Hallo! Wie geht es dir heute?")
-        ]
 
         self.assertFalse(
-            chat_service.intent_answer_is_usable(analysis, "Gut und dir?", history)
+            chat_service.intent_answer_is_usable(analysis, "Hallo!", [])
         )
         self.assertEqual(
             chat_service.detect_intent(
-                "Gut und dir?",
+                "Hallo!",
                 chat_service.CocktailPreferences(),
                 chat_service.CocktailPreferences(),
                 COCKTAILS,
             ),
             "conversation",
         )
+
+    def test_removed_intents_are_rejected(self):
+        for removed_intent in {"greeting", "cocktail_details"}:
+            with self.subTest(intent=removed_intent):
+                with self.assertRaises(ValidationError):
+                    chat_service.IntentAnalysis(intent=removed_intent, answer="")
 
     def test_follow_up_reply_uses_dynamic_answer_after_classifier_fallback(self):
         async def dynamic_answer(*args, **kwargs):
@@ -236,7 +241,7 @@ class ChatServiceTest(unittest.TestCase):
             chat_service.build_chat_response("Was kostet der Gin Sour?", repository=FakeRepository())
         )
 
-        self.assertEqual(response["intent"], "cocktail_details")
+        self.assertEqual(response["intent"], "catalog_query")
         self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
         self.assertIn("8.00 Euro", response["answer"])
 
@@ -326,6 +331,95 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual([item["name"] for item in response["cocktails"]], ["Mojito"])
         self.assertIn("7.50 Euro", response["answer"])
+
+    def test_compact_cocktail_name_flavor_question_returns_database_fact(self):
+        pina_colada = {
+            **COCKTAILS[0],
+            "name": "Pina Colada",
+            "geschmack": ["süß", "fruchtig", "cremig"],
+        }
+        cocktails = COCKTAILS + [pina_colada]
+
+        intent = chat_service.detect_intent(
+            "Ist der pinacolada cremig?",
+            chat_service.CocktailPreferences(),
+            chat_service.local_update_preferences(
+                chat_service.CocktailPreferences(), "Ist der pinacolada cremig?", cocktails
+            ),
+            cocktails,
+        )
+        response = chat_service.build_cocktail_detail_response(
+            "Ist der pinacolada cremig?", cocktails, chat_service.CocktailPreferences()
+        )
+
+        self.assertEqual(intent, "catalog_query")
+        self.assertEqual([item["name"] for item in response["cocktails"]], ["Pina Colada"])
+        self.assertEqual(response["answer"], "Ja, Pina Colada ist laut unserer Karte cremig.")
+        self.assertEqual(response["preferences"]["liked_flavors"], [])
+
+    def test_flavor_fact_question_bypasses_llm_and_does_not_store_flavor(self):
+        pina_colada = {
+            **COCKTAILS[0],
+            "name": "Pina Colada",
+            "geschmack": ["süß", "fruchtig", "cremig"],
+        }
+
+        class PinaRepository:
+            def list_all(self):
+                return COCKTAILS + [pina_colada]
+
+        with patch.object(
+            chat_service,
+            "analyze_intent_with_llm",
+            side_effect=AssertionError("LLM should not override deterministic detail questions"),
+        ):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ist der pinacolada cremig?",
+                    repository=PinaRepository(),
+                    session_id="pina-fact",
+                    conversations=ConversationService(),
+                )
+            )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertIn("Ja, Pina Colada", response["answer"])
+        self.assertEqual(response["preferences"]["liked_flavors"], [])
+
+    def test_recommendation_explanation_resolves_pronoun_without_excluding_flavor(self):
+        pina_colada = {
+            **COCKTAILS[0],
+            "name": "Pina Colada",
+            "geschmack": ["süß", "fruchtig", "cremig"],
+        }
+
+        class PinaRepository:
+            def list_all(self):
+                return COCKTAILS + [pina_colada]
+
+        history = [
+            chat_service.ChatMessage(
+                role="user", content="Aber die Pina Colada ist doch auch cremig, oder nicht?"
+            ),
+            chat_service.ChatMessage(
+                role="assistant", content="Ja, Pina Colada ist laut unserer Karte cremig."
+            ),
+        ]
+        response = asyncio.run(
+            chat_service.build_chat_response(
+                "Wieso schlägst du ihn uns dann nicht vor bei cremig?",
+                history=history,
+                repository=PinaRepository(),
+                session_id="recommendation-explanation",
+                conversations=ConversationService(),
+            )
+        )
+
+        self.assertEqual(response["intent"], "catalog_query")
+        self.assertIn("Pina Colada passt ebenfalls zu cremig", response["answer"])
+        self.assertIn("höchstens drei", response["answer"])
+        self.assertNotIn("ohne cremig", response["answer"])
+        self.assertEqual(response["preferences"]["disliked_flavors"], [])
 
     def test_strong_preference_is_not_misclassified_as_detail_question(self):
         preferences = chat_service.local_update_preferences(

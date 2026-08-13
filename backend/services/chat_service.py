@@ -32,21 +32,30 @@ def find_cocktails_by_name(
     user_message: str,
     cocktails: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    message_tokens = {singular_token(token) for token in normalize_text(user_message).split()}
-    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    normalized_message = normalize_text(user_message)
+    compact_message = normalized_message.replace(" ", "")
+    message_tokens = {singular_token(token) for token in normalized_message.split()}
+    ranked: list[tuple[int, int, int, dict[str, Any]]] = []
     for cocktail in cocktails:
         name = cocktail.get("name")
         if not isinstance(name, str):
             continue
-        name_tokens = [singular_token(token) for token in normalize_text(name).split()]
+        normalized_name = normalize_text(name)
+        name_tokens = [singular_token(token) for token in normalized_name.split()]
         overlap = sum(token in message_tokens for token in name_tokens)
-        if not overlap:
+        compact_name_match = normalized_name.replace(" ", "") in compact_message
+        if not overlap and not compact_name_match:
             continue
-        missing_name_tokens = len(name_tokens) - overlap
-        ranked.append((missing_name_tokens, -overlap, cocktail))
+        missing_name_tokens = 0 if compact_name_match else len(name_tokens) - overlap
+        ranked.append((0 if compact_name_match else 1, missing_name_tokens, -overlap, cocktail))
 
-    ranked.sort(key=lambda item: (item[0], item[1], len(item[2].get("name", ""))))
-    return [item[2] for item in ranked]
+    ranked.sort(key=lambda item: (item[0], item[1], item[2], len(item[3].get("name", ""))))
+    return [item[3] for item in ranked]
+
+
+def detect_queried_flavor(user_message: str, cocktails: list[dict[str, Any]]) -> str | None:
+    flavors = unique_text_values(cocktails, "geschmack")
+    return next((flavor for flavor in flavors if term_matches(flavor, user_message)), None)
 
 
 def is_availability_question(user_message: str) -> bool:
@@ -58,10 +67,59 @@ def is_availability_question(user_message: str) -> bool:
 
 def is_catalog_query(user_message: str) -> bool:
     normalized = normalize_text(user_message)
-    return is_availability_question(user_message) or any(phrase in normalized for phrase in {
+    recommendation_explanation = (
+        any(word in normalized.split() for word in {"warum", "wieso", "weshalb"})
+        and any(term in normalized for term in {
+            "vorschlag", "vorgeschlagen", "empfehl", "schlaegst", "schlagst",
+        })
+    )
+    return recommendation_explanation or is_availability_question(user_message) or any(phrase in normalized for phrase in {
         "welche cocktails enthalten", "welche drinks enthalten", "welche cocktails mit",
         "welche drinks mit", "welche cocktails sind", "welche drinks sind",
     })
+
+
+def is_recommendation_explanation_query(user_message: str) -> bool:
+    normalized = normalize_text(user_message)
+    return (
+        any(word in normalized.split() for word in {"warum", "wieso", "weshalb"})
+        and any(term in normalized for term in {
+            "vorschlag", "vorgeschlagen", "empfehl", "schlaegst", "schlagst",
+        })
+    )
+
+
+def is_greeting_message(user_message: str) -> bool:
+    words = set(normalize_text(user_message).split())
+    greeting_words = {
+        "hallo", "hi", "hey", "moin", "servus", "danke", "tschuss", "tschuess",
+        "guten", "morgen", "abend", "tag",
+    }
+    return bool(words) and words <= greeting_words
+
+
+def is_cocktail_detail_query(user_message: str, cocktails: list[dict[str, Any]]) -> bool:
+    normalized = normalize_text(user_message)
+    words = set(normalized.split())
+    cocktail_name = detect_cocktail_name(user_message, cocktails)
+    queried_flavor = detect_queried_flavor(user_message, cocktails)
+    if cocktail_name and queried_flavor and (
+        "?" in user_message or any(word in words for word in {"ist", "sind", "auch", "wirklich"})
+    ):
+        return True
+
+    detail_markers = {
+        "preis", "kostet", "kosten", "zutat", "zutaten", "drin", "enthalten",
+        "rezept", "staerke", "stärke", "stark", "beschreibung", "spirituose",
+    }
+    detail_questions = {
+        "was kostet", "wie teuer", "was ist in", "welche zutaten", "wie stark ist",
+        "informationen zu", "erzaehl mir etwas ueber", "erzähl mir etwas über",
+    }
+    return bool(
+        (cocktail_name and any(marker in normalized for marker in detail_markers))
+        or any(question in normalized for question in detail_questions)
+    )
 
 
 def detect_intent(
@@ -79,9 +137,8 @@ def detect_intent(
     }):
         return "reset_preferences"
 
-    greeting_words = {"hallo", "hi", "hey", "moin", "servus", "danke", "tschuss", "tschuess"}
-    if words and words <= greeting_words:
-        return "greeting"
+    if is_greeting_message(user_message):
+        return "conversation"
 
     short_conversation_replies = {"ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok"}
     if normalized in short_conversation_replies:
@@ -90,19 +147,8 @@ def detect_intent(
     if is_catalog_query(user_message):
         return "catalog_query"
 
-    cocktail_name = detect_cocktail_name(user_message, cocktails)
-    detail_markers = {
-        "preis", "kostet", "kosten", "zutat", "zutaten", "drin", "enthalten",
-        "rezept", "staerke", "stärke", "stark", "beschreibung", "spirituose",
-    }
-    detail_questions = {
-        "was kostet", "wie teuer", "was ist in", "welche zutaten", "wie stark ist",
-        "informationen zu", "erzaehl mir etwas ueber", "erzähl mir etwas über",
-    }
-    if (
-        cocktail_name and any(marker in normalized for marker in detail_markers)
-    ) or any(question in normalized for question in detail_questions):
-        return "cocktail_details"
+    if is_cocktail_detail_query(user_message, cocktails):
+        return "catalog_query"
 
     out_of_scope_markers = {
         "wetter", "fussball", "fußball", "aktien", "programmieren", "python", "politik",
@@ -141,24 +187,23 @@ async def analyze_intent_with_llm(
         "role": "system",
         "content": (
             "Du erkennst die kommunikative Absicht einer Nachricht an einen Cocktail-Assistenten. "
-            "Gib ausschliesslich JSON mit intent und answer zurueck. Erlaubte Intents: greeting, conversation, "
-            "recommendation, preference_update, catalog_query, cocktail_details, reset_preferences, out_of_scope, unknown. "
+            "Gib ausschliesslich JSON mit intent und answer zurueck. Erlaubte Intents: conversation, recommendation, "
+            "preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
             "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
-            "catalog_query prueft nur Fakten und Verfuegbarkeit in der Cocktailkarte, ohne etwas zu empfehlen. "
+            "catalog_query prueft nur Fakten, Eigenschaften und Verfuegbarkeit in der Cocktailkarte, ohne etwas zu empfehlen. "
             "Beispiele fuer catalog_query: 'Habt ihr Mojitos?', 'Gibt es alkoholfreie Cocktails?' und "
-            "'Welche Cocktails enthalten Rum?'. "
+            "'Welche Cocktails enthalten Rum?', 'Was kostet der Mojito?' oder 'Ist die Pina Colada cremig?'. "
             "Eine allgemeine Aussage wie 'Ich mag Cocktails' ist conversation, keine recommendation. "
-            "Eine Antwort auf eine vorherige Smalltalk-Frage wie 'gut und dir?' ist conversation, nicht greeting. "
+            "Begruessungen, Smalltalk und Antworten wie 'gut und dir?' sind conversation. "
             "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist preference_update. "
-            "Fragen zu Preis, Zutaten, Geschmack oder Staerke eines konkreten Cocktails sind cocktail_details. "
-            "Bei greeting, conversation, reset_preferences, out_of_scope und unknown schreibst du in answer eine "
-            "kurze, grammatikalisch natuerliche deutsche Antwort. greeting begruesst kurz und fragt direkt nach "
-            "Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Bei conversation reagierst "
+            "Bei conversation, reset_preferences, out_of_scope und unknown schreibst du in answer eine "
+            "kurze, grammatikalisch natuerliche deutsche Antwort. Bei einer Begruessung begruesst du kurz und fragst "
+            "direkt nach Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Sonst reagierst "
             "du auf den bisherigen Verlauf und leitest mit einer passenden Rueckfrage zum Cocktail-Thema zurueck. "
             "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
             "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
             "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
-            "Bei recommendation, preference_update, catalog_query und cocktail_details bleibt answer leer. "
+            "Bei recommendation, preference_update und catalog_query bleibt answer leer. "
             "Erfinde keine Cocktaildaten.\n\n"
             f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}"
         ),
@@ -184,17 +229,13 @@ def intent_answer_is_usable(
     user_message: str = "",
     history: list[ChatMessage] | None = None,
 ) -> bool:
-    answer_intents = {"greeting", "conversation", "reset_preferences", "out_of_scope", "unknown"}
+    answer_intents = {"conversation", "reset_preferences", "out_of_scope", "unknown"}
     if analysis.intent not in answer_intents:
         return True
     if not analysis.answer.strip():
         return False
 
-    normalized_user = normalize_text(user_message)
-    if analysis.intent == "greeting":
-        greeting_words = {"hallo", "hi", "hey", "moin", "servus", "guten", "morgen", "abend", "tag"}
-        if normalized_user and not set(normalized_user.split()) <= greeting_words:
-            return False
+    if analysis.intent == "conversation" and is_greeting_message(user_message):
         normalized_answer = normalize_text(analysis.answer)
         if any(phrase in normalized_answer for phrase in {"wie geht es dir", "wie gehts dir", "wie geht es ihnen"}):
             return False
@@ -202,7 +243,7 @@ def intent_answer_is_usable(
     if analysis.intent == "conversation" and "?" not in analysis.answer:
         return False
 
-    if analysis.intent in {"greeting", "conversation"} and contains_recommendation_language(
+    if analysis.intent == "conversation" and contains_recommendation_language(
         analysis.answer
     ):
         return False
@@ -237,9 +278,9 @@ async def generate_intent_answer(
             "Du bist CocktailGPT und antwortest kurz, natuerlich und auf Deutsch. Duze den Nutzer. "
             f"Die bereits gepruefte Absicht ist: {intent}. "
             "Reagiere auf die aktuelle Nachricht und den Verlauf, ohne eine vorherige Antwort zu wiederholen. "
-            "Bei greeting oder conversation leitest du freundlich zu Cocktailwuenschen, Geschmacksrichtungen oder "
+            "Bei conversation leitest du freundlich zu Cocktailwuenschen, Geschmacksrichtungen oder "
             "Zutaten ueber und stellst genau eine passende Frage. Frage nicht nach dem persoenlichen Befinden. "
-            "Nenne bei greeting oder conversation keinen konkreten Cocktail. Konkrete Empfehlungen werden an anderer "
+            "Nenne bei conversation keinen konkreten Cocktail. Konkrete Empfehlungen werden an anderer "
             "Stelle aus der geprueften Cocktailkarte erzeugt. "
             "Wenn bereits ein Verlauf existiert, begruesse nicht erneut. Du hilfst dem Nutzer bei der Auswahl und "
             "forderst den Nutzer niemals auf, dir bei der Auswahl zu helfen. "
@@ -256,7 +297,7 @@ async def generate_intent_answer(
     answer = (await query_ollama(messages, response_format="")).strip()
     if not answer:
         raise InvalidLLMOutputError("LLM lieferte keine Intent-Antwort.")
-    if intent in {"greeting", "conversation"} and contains_recommendation_language(answer):
+    if intent == "conversation" and contains_recommendation_language(answer):
         raise InvalidLLMOutputError("LLM-Gespraechsantwort enthielt eine ungepruefte Empfehlung.")
     return answer
 
@@ -265,15 +306,15 @@ def basic_intent_response(
     intent: ChatIntent,
     preferences: CocktailPreferences,
     generated_answer: str = "",
+    user_message: str = "",
 ) -> dict[str, Any]:
+    conversation_fallback = (
+        "Hallo! Ich bin CocktailGPT. Suchst du einen bestimmten Geschmack oder eine Cocktail-Empfehlung?"
+        if is_greeting_message(user_message)
+        else "Cocktails sind wirklich vielseitig. Magst du sie eher fruchtig, cremig, sauer oder stark?"
+    )
     messages = {
-        "greeting": (
-            "Hallo! Ich bin CocktailGPT. Ich kann dir einen Cocktail empfehlen oder Fragen zu "
-            "Zutaten, Geschmack, Stärke und Preisen beantworten."
-        ),
-        "conversation": (
-            "Cocktails sind wirklich vielseitig. Magst du sie eher fruchtig, cremig, sauer oder stark?"
-        ),
+        "conversation": conversation_fallback,
         "reset_preferences": (
             "Ich habe deine bisherigen Vorlieben zurückgesetzt. Wir können mit einer neuen Auswahl starten: "
             "Magst du es eher fruchtig, sauer, cremig oder stark?"
@@ -313,7 +354,7 @@ def build_cocktail_detail_response(
         )
         return {
             "type": "follow_up",
-            "intent": "cocktail_details",
+            "intent": "catalog_query",
             "message": answer,
             "answer": answer,
             "cocktails": [],
@@ -322,6 +363,27 @@ def build_cocktail_detail_response(
         }
 
     normalized = normalize_text(user_message)
+    queried_flavor = detect_queried_flavor(user_message, cocktails)
+    if queried_flavor:
+        has_flavor = any(
+            term_matches(queried_flavor, flavor) for flavor in cocktail.get("geschmack", [])
+        )
+        if has_flavor:
+            answer = f"Ja, {cocktail['name']} ist laut unserer Karte {queried_flavor}."
+        else:
+            answer = (
+                f"Nein, {cocktail['name']} ist auf unserer Karte nicht als {queried_flavor} eingeordnet."
+            )
+        return {
+            "type": "message",
+            "intent": "catalog_query",
+            "message": answer,
+            "answer": answer,
+            "cocktails": [cocktail],
+            "criteria": None,
+            "preferences": preferences.model_dump(),
+        }
+
     details: list[str] = []
     if any(term in normalized for term in {"preis", "kostet", "kosten"}):
         details.append(f"Er kostet {cocktail.get('preis', 0):.2f} Euro.")
@@ -337,7 +399,7 @@ def build_cocktail_detail_response(
     answer = f"{cocktail['name']}: " + " ".join(detail for detail in details if detail)
     return {
         "type": "message",
-        "intent": "cocktail_details",
+        "intent": "catalog_query",
         "message": answer,
         "answer": answer,
         "cocktails": [cocktail],
@@ -350,7 +412,47 @@ def build_catalog_query_response(
     user_message: str,
     cocktails: list[dict[str, Any]],
     preferences: CocktailPreferences,
+    history: list[ChatMessage] | None = None,
 ) -> dict[str, Any]:
+    if is_recommendation_explanation_query(user_message):
+        referenced = find_cocktails_by_name(user_message, cocktails)
+        if not referenced and history:
+            for message in reversed(history[-6:]):
+                referenced = find_cocktails_by_name(message.content, cocktails)
+                if referenced:
+                    break
+
+        cocktail = referenced[0] if referenced else None
+        queried_flavor = detect_queried_flavor(user_message, cocktails)
+        if cocktail and queried_flavor:
+            has_flavor = any(
+                term_matches(queried_flavor, flavor)
+                for flavor in cocktail.get("geschmack", [])
+            )
+            if has_flavor:
+                answer = (
+                    f"{cocktail['name']} passt ebenfalls zu {queried_flavor}. "
+                    "Ich zeige pro Empfehlung höchstens drei passende Treffer; dass dieser Cocktail nicht dabei war, "
+                    "bedeutet keinen Ausschluss."
+                )
+            else:
+                answer = (
+                    f"{cocktail['name']} ist auf unserer Karte nicht als {queried_flavor} eingeordnet und wurde "
+                    "deshalb dafür nicht vorgeschlagen."
+                )
+            return {
+                "type": "message",
+                "intent": "catalog_query",
+                "message": answer,
+                "answer": answer,
+                "cocktails": [cocktail],
+                "criteria": None,
+                "preferences": preferences.model_dump(),
+            }
+
+    if not is_catalog_query(user_message) and is_cocktail_detail_query(user_message, cocktails):
+        return build_cocktail_detail_response(user_message, cocktails, preferences)
+
     name_matches = find_cocktails_by_name(user_message, cocktails)
     if name_matches:
         base_tokens = {
@@ -991,7 +1093,7 @@ async def build_chat_response(
         except (LLMError, InvalidLLMOutputError) as exc:
             logger.warning("LLM intent detection failed, using local fallback: %s", exc)
             detected_intent = local_intent
-            if detected_intent in {"greeting", "conversation", "out_of_scope", "unknown"}:
+            if detected_intent in {"conversation", "out_of_scope", "unknown"}:
                 try:
                     generated_intent_answer = await generate_intent_answer(
                         detected_intent, user_message, history
@@ -1002,14 +1104,16 @@ async def build_chat_response(
         if detected_intent == "reset_preferences":
             conversations.reset_preferences(session_id)
             return basic_intent_response(
-                detected_intent, CocktailPreferences(), generated_intent_answer
+                detected_intent, CocktailPreferences(), generated_intent_answer, user_message
             )
-        if detected_intent in {"greeting", "conversation", "out_of_scope", "unknown"}:
-            return basic_intent_response(detected_intent, current_preferences, generated_intent_answer)
+        if detected_intent in {"conversation", "out_of_scope", "unknown"}:
+            return basic_intent_response(
+                detected_intent, current_preferences, generated_intent_answer, user_message
+            )
         if detected_intent == "catalog_query":
-            return build_catalog_query_response(user_message, cocktails, current_preferences)
-        if detected_intent == "cocktail_details":
-            return build_cocktail_detail_response(user_message, cocktails, current_preferences)
+            return build_catalog_query_response(
+                user_message, cocktails, current_preferences, history
+            )
 
     if intent_routing_enabled():
         preferences = local_preferences

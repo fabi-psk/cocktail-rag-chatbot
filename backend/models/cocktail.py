@@ -6,12 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 StrengthValue = Literal["leicht", "mittel", "stark", "hoch", "alkoholfrei"]
 PreferenceStrengthValue = Literal["mild", "mittel", "stark", "hoch", "alkoholfrei"]
 ChatIntent = Literal[
-    "greeting",
     "conversation",
     "recommendation",
     "preference_update",
     "catalog_query",
-    "cocktail_details",
     "reset_preferences",
     "out_of_scope",
     "unknown",
