@@ -1,7 +1,6 @@
 [
   {
     "name": "Caipirinha",
-    "kategorie": "Caipis",
     "preis": 7.5,
     "spirituose": [
       "Cachaca"
@@ -21,7 +20,6 @@
   },
   {
     "name": "Mojito",
-    "kategorie": "Caipis",
     "preis": 7.5,
     "spirituose": [
       "Rum"
@@ -41,10 +39,8 @@
     ],
     "beschreibung": "Klassischer kubanischer Cocktail mit Rum, Limette, braunem Zucker, frischer Minze und Soda."
   },
-
   {
     "name": "Baileys Colada",
-    "kategorie": "Cremig",
     "preis": 8.5,
     "spirituose": [
       "Baileys"
@@ -66,7 +62,6 @@
   },
   {
     "name": "Banana Split",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Likör 43",
@@ -92,7 +87,6 @@
   },
   {
     "name": "Caribbean Dream",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -119,7 +113,6 @@
   },
   {
     "name": "Coco Loco",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -133,7 +126,7 @@
       "kokosartig",
       "fruchtig"
     ],
-    "staerke": "hoch",
+    "staerke": "mittel",
     "zutaten": [
       "Vodka",
       "Rum",
@@ -147,7 +140,6 @@
   },
   {
     "name": "Flying Kangoroo",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Rum",
@@ -161,7 +153,7 @@
       "tropisch",
       "fruchtig"
     ],
-    "staerke": "hoch",
+    "staerke": "mittel",
     "zutaten": [
       "Rum",
       "Vodka",
@@ -175,7 +167,6 @@
   },
   {
     "name": "Jogurette",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -202,7 +193,6 @@
   },
   {
     "name": "Karamell Colada",
-    "kategorie": "Cremig",
     "preis": 8.5,
     "spirituose": [
       "Vodka",
@@ -227,7 +217,6 @@
   },
   {
     "name": "Pina Colada",
-    "kategorie": "Cremig",
     "preis": 8.5,
     "spirituose": [
       "Rum"
@@ -250,7 +239,6 @@
   },
   {
     "name": "Prince",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Likör 43",
@@ -275,7 +263,6 @@
   },
   {
     "name": "Princess",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Likör 43",
@@ -301,7 +288,6 @@
   },
   {
     "name": "Sex in the Forst",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -327,7 +313,6 @@
   },
   {
     "name": "Solero",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -353,7 +338,6 @@
   },
   {
     "name": "Strawberry Colada",
-    "kategorie": "Cremig",
     "preis": 8.5,
     "spirituose": [
       "Rum"
@@ -377,7 +361,6 @@
   },
   {
     "name": "Strawberry Field",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Rum"
@@ -402,7 +385,6 @@
   },
   {
     "name": "SunSplash",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Pampino (Haselnuss)",
@@ -428,7 +410,6 @@
   },
   {
     "name": "Swedish Cup",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Rum"
@@ -453,7 +434,6 @@
   },
   {
     "name": "Swimming Pool",
-    "kategorie": "Cremig",
     "preis": 8.5,
     "spirituose": [
       "Vodka",
@@ -479,7 +459,6 @@
   },
   {
     "name": "Wake me up",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Baileys",
@@ -505,7 +484,6 @@
   },
   {
     "name": "White Russian",
-    "kategorie": "Cremig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -526,10 +504,8 @@
     ],
     "beschreibung": "Klassischer cremiger Cocktail mit Vodka, Kahlúa-Kaffeelikör und feiner Sahne."
   },
-
   {
     "name": "Big Apple",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Peachtree",
@@ -555,7 +531,6 @@
   },
   {
     "name": "El Diablo",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Tequila",
@@ -579,7 +554,6 @@
   },
   {
     "name": "Freshmaker",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Gin"
@@ -602,7 +576,6 @@
   },
   {
     "name": "Green Flavour",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Rum",
@@ -628,7 +601,6 @@
   },
   {
     "name": "Lady Killer",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Gin",
@@ -652,7 +624,6 @@
   },
   {
     "name": "Nightlife",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -676,7 +647,6 @@
   },
   {
     "name": "Nightmare",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Triple Sec",
@@ -689,7 +659,7 @@
       "beerig",
       "stark"
     ],
-    "staerke": "hoch",
+    "staerke": "mittel",
     "zutaten": [
       "Triple Sec",
       "Vodka",
@@ -704,7 +674,6 @@
   },
   {
     "name": "Planters Punch",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Dunkler Rum",
@@ -729,7 +698,6 @@
   },
   {
     "name": "Rotkäppchen ist Sauer",
-    "kategorie": "Fruchtig",
     "preis": 8.5,
     "spirituose": [
       "Vodka",
@@ -752,7 +720,6 @@
   },
   {
     "name": "Sex on the Beach",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Vodka",
@@ -775,7 +742,6 @@
   },
   {
     "name": "Tequila Sunrise",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Tequila"
@@ -796,7 +762,6 @@
   },
   {
     "name": "Torrero",
-    "kategorie": "Fruchtig",
     "preis": 8.5,
     "spirituose": [
       "Vodka",
@@ -820,7 +785,6 @@
   },
   {
     "name": "Wikingerblut",
-    "kategorie": "Fruchtig",
     "preis": 8.5,
     "spirituose": [
       "Jack Daniel's Honey"
@@ -842,7 +806,6 @@
   },
   {
     "name": "Yellow Bird",
-    "kategorie": "Fruchtig",
     "preis": 7.5,
     "spirituose": [
       "Dunkler Rum",
@@ -866,7 +829,6 @@
   },
   {
     "name": "Amaretto Sour",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Amaretto"
@@ -888,7 +850,6 @@
   },
   {
     "name": "Aperol Spritz",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Aperol",
@@ -909,7 +870,6 @@
   },
   {
     "name": "Cosmopolitan",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Vodka",
@@ -932,7 +892,6 @@
   },
   {
     "name": "Daiquiri",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Rum"
@@ -952,7 +911,6 @@
   },
   {
     "name": "Frangelico Sour",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Frangelico"
@@ -973,7 +931,6 @@
   },
   {
     "name": "Gin Fizz",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Gin"
@@ -994,7 +951,6 @@
   },
   {
     "name": "Licor 43 Sour",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Likör 43"
@@ -1015,7 +971,6 @@
   },
   {
     "name": "Lynchburg Lemonade",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Jack Daniel's",
@@ -1039,7 +994,6 @@
   },
   {
     "name": "Old Fashioned",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Bourbon"
@@ -1049,7 +1003,7 @@
       "süß",
       "würzig"
     ],
-    "staerke": "hoch",
+    "staerke": "mittel",
     "zutaten": [
       "Bourbon",
       "Zuckersirup",
@@ -1059,7 +1013,6 @@
   },
   {
     "name": "Singapore Sling",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Gin",
@@ -1082,7 +1035,6 @@
   },
   {
     "name": "Strawberry Margarita",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Tequila",
@@ -1104,7 +1056,6 @@
   },
   {
     "name": "Tommy's Margarita",
-    "kategorie": "Klassisch",
     "preis": 8.5,
     "spirituose": [
       "Tequila"
@@ -1125,7 +1076,6 @@
   },
   {
     "name": "Whiskey Sour",
-    "kategorie": "Klassisch",
     "preis": 7.5,
     "spirituose": [
       "Bourbon"
@@ -1144,10 +1094,8 @@
     ],
     "beschreibung": "Klassischer, herber Cocktail mit Bourbon Whiskey, frischem Zitronensaft und Zuckersirup, abgerundet mit einem feinen Spritzer Orangensaft."
   },
-
   {
     "name": "Bahama Mama",
-    "kategorie": "Stark",
     "preis": 8.5,
     "spirituose": [
       "Dunkler Rum",
@@ -1175,7 +1123,6 @@
   },
   {
     "name": "Blue Long Island",
-    "kategorie": "Stark",
     "preis": 8.5,
     "spirituose": [
       "Rum",
@@ -1203,7 +1150,6 @@
   },
   {
     "name": "Long Island Iced Tea",
-    "kategorie": "Stark",
     "preis": 8.5,
     "spirituose": [
       "Rum",
@@ -1231,7 +1177,6 @@
   },
   {
     "name": "Mai Tai",
-    "kategorie": "Stark",
     "preis": 8.5,
     "spirituose": [
       "Heller Rum",
@@ -1258,7 +1203,6 @@
   },
   {
     "name": "Zombie",
-    "kategorie": "Stark",
     "preis": 8.5,
     "spirituose": [
       "Heller Rum",
@@ -1283,10 +1227,8 @@
     ],
     "beschreibung": "Kräftiger tropischer Cocktail mit hellem und dunklem Rum, Triple Sec, Fruchtsäften und Grenadine."
   },
-
   {
     "name": "Virgin Colada",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1305,7 +1247,6 @@
   },
   {
     "name": "Ipanema",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1325,7 +1266,6 @@
   },
   {
     "name": "Coconut Kiss",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1346,7 +1286,6 @@
   },
   {
     "name": "Fruit Punsh",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1368,7 +1307,6 @@
   },
   {
     "name": "Virgin Mojito",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1389,7 +1327,6 @@
   },
   {
     "name": "Summer Dream",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1409,7 +1346,6 @@
   },
   {
     "name": "Maracolada",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1429,7 +1365,6 @@
   },
   {
     "name": "Berry Punsh",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1449,7 +1384,6 @@
   },
   {
     "name": "Brombali",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1469,7 +1403,6 @@
   },
   {
     "name": "KiGi",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [
@@ -1488,7 +1421,6 @@
   },
   {
     "name": "Schock Mystery",
-    "kategorie": "Alkoholfrei",
     "preis": 5.9,
     "spirituose": [],
     "geschmack": [

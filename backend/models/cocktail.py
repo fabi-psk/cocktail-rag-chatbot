@@ -38,7 +38,6 @@ class CocktailPreferences(BaseModel):
     spirits: list[str] = Field(default_factory=list)
     liked_flavors: list[str] = Field(default_factory=list)
     disliked_flavors: list[str] = Field(default_factory=list)
-    categories: list[str] = Field(default_factory=list)
     strength: PreferenceStrengthValue | None = None
     alcoholic: bool | None = None
 
@@ -50,7 +49,6 @@ class CocktailPreferences(BaseModel):
         "spirits",
         "liked_flavors",
         "disliked_flavors",
-        "categories",
         mode="before",
     )
     @classmethod
@@ -92,13 +90,12 @@ class CocktailPreferences(BaseModel):
 class CocktailSearchCriteria(BaseModel):
     spirituose: str | None = None
     geschmack: str | None = None
-    kategorie: str | None = None
     staerke: StrengthValue | None = None
     ausschluesse: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("spirituose", "geschmack", "kategorie", "staerke", mode="before")
+    @field_validator("spirituose", "geschmack", "staerke", mode="before")
     @classmethod
     def normalize_empty_strings(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -130,7 +127,6 @@ class CocktailResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     name: str
-    kategorie: str
     preis: float
     spirituose: list[str] = Field(default_factory=list)
     geschmack: list[str] = Field(default_factory=list)

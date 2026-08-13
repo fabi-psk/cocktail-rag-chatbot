@@ -11,7 +11,6 @@ from services.conversation_service import ConversationService
 COCKTAILS = [
     {
         "name": "Caribbean Dream",
-        "kategorie": "Cremig",
         "preis": 8.5,
         "spirituose": ["Rum"],
         "geschmack": ["cremig", "fruchtig"],
@@ -21,7 +20,6 @@ COCKTAILS = [
     },
     {
         "name": "Bahama Mama",
-        "kategorie": "Stark",
         "preis": 9.0,
         "spirituose": ["Dunkler Rum"],
         "geschmack": ["fruchtig", "tropisch"],
@@ -31,7 +29,6 @@ COCKTAILS = [
     },
     {
         "name": "Gin Sour",
-        "kategorie": "Klassisch",
         "preis": 8.0,
         "spirituose": ["Gin"],
         "geschmack": ["sauer"],
@@ -161,6 +158,39 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["criteria"]["geschmack"], "fruchtig")
         self.assertIn("Kokossirup", response["criteria"]["ausschluesse"])
 
+    def test_fruity_preference_only_sets_fruity_flavor(self):
+        preferences = chat_service.local_update_preferences(
+            chat_service.CocktailPreferences(),
+            "Ich mag fruchtige Cocktails",
+            COCKTAILS,
+        )
+
+        self.assertEqual(preferences.liked_flavors, ["fruchtig"])
+        self.assertEqual(preferences.spirits, [])
+        self.assertEqual(preferences.liked_ingredients, [])
+        self.assertEqual(preferences.disliked_ingredients, [])
+        self.assertIsNone(preferences.strength)
+        self.assertIsNone(preferences.alcoholic)
+
+    def test_llm_preferences_are_limited_to_explicit_local_signal(self):
+        current = chat_service.CocktailPreferences()
+        local = chat_service.local_update_preferences(current, "Ich mag fruchtige Cocktails", COCKTAILS)
+        llm = chat_service.CocktailPreferences(
+            liked_ingredients=["Rum", "Ananassaft"],
+            spirits=["Rum"],
+            liked_flavors=["fruchtig", "cremig"],
+            strength="mittel",
+            alcoholic=True,
+        )
+
+        constrained = chat_service.constrain_preferences_to_local_signal(current, llm, local)
+
+        self.assertEqual(constrained.liked_flavors, ["fruchtig"])
+        self.assertEqual(constrained.spirits, [])
+        self.assertEqual(constrained.liked_ingredients, [])
+        self.assertIsNone(constrained.strength)
+        self.assertIsNone(constrained.alcoholic)
+
     def test_memory_combines_rum_and_disliked_sour(self):
         async def fake_update_preferences_with_llm(message, preferences, cocktails):
             raise chat_service.InvalidLLMOutputError("bad output")
@@ -282,14 +312,3 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(normalized.geschmack, "fruchtig")
 
-    def test_normalize_search_criteria_canonicalizes_inflected_creamy_category(self):
-        criteria = CocktailSearchCriteria(kategorie="cremigen Cocktail")
-
-        normalized = chat_service.normalize_search_criteria(
-            criteria,
-            "Ich suche einen cremigen Cocktail",
-            COCKTAILS,
-        )
-
-        self.assertEqual(normalized.kategorie, "Cremig")
-        self.assertEqual(normalized.geschmack, "cremig")

@@ -125,7 +125,6 @@ def cocktail_contains(cocktail: dict[str, Any], term: str) -> bool:
     searchable_values: list[str] = [
         cocktail.get("name", ""),
         cocktail.get("beschreibung", ""),
-        cocktail.get("kategorie", ""),
         cocktail.get("staerke", ""),
     ]
     searchable_values.extend(cocktail.get("spirituose", []))
@@ -139,8 +138,7 @@ def matches_strength(criteria_strength: str | None, cocktail: dict[str, Any]) ->
         return True
     accepted = STRENGTH_ALIASES.get(normalize_text(criteria_strength), {normalize_text(criteria_strength)})
     cocktail_strength = normalize_text(cocktail.get("staerke", ""))
-    cocktail_category = normalize_text(cocktail.get("kategorie", ""))
-    return cocktail_strength in accepted or cocktail_category in accepted
+    return cocktail_strength in accepted
 
 
 def score_cocktail(cocktail: dict[str, Any], criteria: CocktailSearchCriteria) -> int:
@@ -149,8 +147,6 @@ def score_cocktail(cocktail: dict[str, Any], criteria: CocktailSearchCriteria) -
         score += 30
     if criteria.geschmack and field_contains(criteria.geschmack, cocktail.get("geschmack", [])):
         score += 20
-    if criteria.kategorie and term_matches(criteria.kategorie, cocktail.get("kategorie", "")):
-        score += 15
     if criteria.staerke and matches_strength(criteria.staerke, cocktail):
         score += 15
     return score
@@ -167,7 +163,6 @@ def search_cocktails(
     has_positive_criteria = any([
         criteria.spirituose,
         criteria.geschmack,
-        criteria.kategorie,
         criteria.staerke,
     ])
 
@@ -177,8 +172,6 @@ def search_cocktails(
         if criteria.spirituose and not field_contains(criteria.spirituose, cocktail.get("spirituose", [])):
             continue
         if criteria.geschmack and not field_contains(criteria.geschmack, cocktail.get("geschmack", [])):
-            continue
-        if criteria.kategorie and not term_matches(criteria.kategorie, cocktail.get("kategorie", "")):
             continue
         if not matches_strength(criteria.staerke, cocktail):
             continue
@@ -198,13 +191,11 @@ def search_cocktails(
 def search_by_query_params(
     spirituose: str | None = None,
     geschmack: str | None = None,
-    kategorie: str | None = None,
     staerke: str | None = None,
 ) -> list[dict[str, Any]]:
     criteria = CocktailSearchCriteria(
         spirituose=spirituose,
         geschmack=geschmack,
-        kategorie=kategorie,
         staerke=staerke,
     )
     return search_cocktails(criteria, limit=1000)

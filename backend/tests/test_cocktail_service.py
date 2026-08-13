@@ -7,7 +7,6 @@ from services.cocktail_service import search_cocktails
 COCKTAILS = [
     {
         "name": "Zombie",
-        "kategorie": "Stark",
         "preis": 9.5,
         "spirituose": ["Heller Rum", "Dunkler Rum"],
         "geschmack": ["fruchtig", "sauer"],
@@ -17,7 +16,6 @@ COCKTAILS = [
     },
     {
         "name": "Bahama Mama",
-        "kategorie": "Stark",
         "preis": 9.0,
         "spirituose": ["Dunkler Rum", "Malibu"],
         "geschmack": ["fruchtig", "tropisch"],
@@ -27,7 +25,6 @@ COCKTAILS = [
     },
     {
         "name": "Mojito",
-        "kategorie": "Caipis",
         "preis": 7.5,
         "spirituose": ["Rum"],
         "geschmack": ["frisch", "minzig"],
@@ -37,7 +34,6 @@ COCKTAILS = [
     },
     {
         "name": "Gin Sour",
-        "kategorie": "Klassisch",
         "preis": 8.0,
         "spirituose": ["Gin"],
         "geschmack": ["sauer"],
@@ -64,7 +60,7 @@ class CocktailServiceTest(unittest.TestCase):
         self.assertEqual([cocktail["name"] for cocktail in result], ["Zombie"])
 
     def test_search_combines_multiple_criteria(self):
-        criteria = CocktailSearchCriteria(spirituose="Gin", geschmack="sauer", kategorie="Klassisch")
+        criteria = CocktailSearchCriteria(spirituose="Gin", geschmack="sauer")
 
         result = search_cocktails(criteria, COCKTAILS)
 

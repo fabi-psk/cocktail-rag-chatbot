@@ -15,7 +15,6 @@ const emptyPreferences = {
   spirits: [],
   liked_flavors: [],
   disliked_flavors: [],
-  categories: [],
   strength: null,
   alcoholic: null,
 };
@@ -41,7 +40,6 @@ const buildPreferenceTags = (preferences) => {
   prefs.spirits?.forEach((value) => tags.push({ field: "spirits", value, label: value, type: "positive" }));
   prefs.liked_ingredients?.forEach((value) => tags.push({ field: "liked_ingredients", value, label: value, type: "positive" }));
   prefs.liked_flavors?.forEach((value) => tags.push({ field: "liked_flavors", value, label: value, type: "positive" }));
-  prefs.categories?.forEach((value) => tags.push({ field: "categories", value, label: value, type: "positive" }));
   if (hasCoconutExclusion) {
     tags.push({ field: "disliked_ingredients", value: "Kokos", label: "Kein Kokos", type: "negative" });
   }
@@ -59,7 +57,6 @@ const buildPreferenceTags = (preferences) => {
 
 const cocktailTextValues = (cocktail) => [
   cocktail.name,
-  cocktail.kategorie,
   cocktail.staerke,
   cocktail.beschreibung,
   ...(cocktail.spirituose || []),
@@ -78,9 +75,6 @@ const buildMatchReasons = (cocktail, preferences) => {
   });
   prefs.liked_flavors?.forEach((value) => {
     if (cocktailHasValue(cocktail, value)) reasons.push(`${value} passt zu deinem Geschmack.`);
-  });
-  prefs.categories?.forEach((value) => {
-    if (cocktailHasValue(cocktail, value)) reasons.push(`Kategorie ${value} passt zu deiner Auswahl.`);
   });
   prefs.disliked_ingredients?.forEach((value) => {
     if (!cocktailHasValue(cocktail, value)) reasons.push(`Kein ${value} enthalten.`);
@@ -402,11 +396,9 @@ function App() {
   };
 
   const suggestions = [
-    { label: "🍸 Klassisch", text: "Zeige mir klassische Cocktails", color: "#3b82f6", glow: "rgba(59, 130, 246, 0.3)", active: () => includesValue(preferences.categories, "Klassisch") },
-    { label: "🍓 Fruchtig", text: "Ich mag fruchtige Cocktails", color: "#ec4899", glow: "rgba(236, 72, 153, 0.3)", active: () => includesValue(preferences.liked_flavors, "fruchtig") || includesValue(preferences.categories, "Fruchtig") },
-    { label: "☁️ Cremig", text: "Ich mag cremige Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "cremig") || includesValue(preferences.categories, "Cremig") },
+    { label: "🍓 Fruchtig", text: "Ich mag fruchtige Cocktails", color: "#ec4899", glow: "rgba(236, 72, 153, 0.3)", active: () => includesValue(preferences.liked_flavors, "fruchtig") },
+    { label: "☁️ Cremig", text: "Ich mag cremige Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "cremig") },
     { label: "💪 Stark", text: "Ich möchte etwas Starkes", color: "#a855f7", glow: "rgba(168, 85, 247, 0.3)", active: () => ["stark", "hoch"].includes(preferences.strength) },
-    { label: "🍋 Caipis", text: "Zeige mir Cocktails aus der Kategorie Caipis", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)", active: () => includesValue(preferences.categories, "Caipis") },
     { label: "🚫 Alkoholfrei", text: "Ich suche einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)", active: () => preferences.alcoholic === false || preferences.strength === "alkoholfrei" },
     { label: "🍋 Sauer", text: "Ich mag saure Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "sauer") },
     { label: "🥥 Ohne Kokos", text: "Ich möchte keinen Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)", active: () => (preferences.disliked_ingredients || []).some((value) => normalize(value).includes("kokos")) },
@@ -593,7 +585,6 @@ function App() {
                     </h3>
                     <div className="match-label">{getMatchLabel(index)}</div>
                     <div className="cocktail-meta">
-                      <span>{cocktail.kategorie}</span>
                       {highlights.map((value) => (
                         <span key={`${cocktail.name}-${value}`}>{value}</span>
                       ))}

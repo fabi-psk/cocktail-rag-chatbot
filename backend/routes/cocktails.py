@@ -31,11 +31,10 @@ def get_cocktail_by_name(name: str):
 def search_cocktails_endpoint(
     spirituose: str | None = Query(default=None),
     geschmack: str | None = Query(default=None),
-    kategorie: str | None = Query(default=None),
     staerke: str | None = Query(default=None),
 ):
     try:
-        result = search_by_query_params(spirituose, geschmack, kategorie, staerke)
+        result = search_by_query_params(spirituose, geschmack, staerke)
     except CocktailRepositoryError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
