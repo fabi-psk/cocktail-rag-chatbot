@@ -562,7 +562,6 @@ function App() {
                 const isExpanded = expandedCocktails[cocktail.name] || false;
                 const reasons = buildMatchReasons(cocktail, preferences);
                 const highlights = [
-                  ...(cocktail.spirituose || []),
                   ...(cocktail.geschmack || []),
                   cocktail.staerke,
                 ].filter(Boolean).slice(0, 4);
@@ -597,7 +596,6 @@ function App() {
                         ))}
                       </div>
                     )}
-                    <div className="cocktail-desc">{cocktail.beschreibung}</div>
                     <button
                       type="button"
                       className="recipe-toggle"
