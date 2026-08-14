@@ -530,7 +530,7 @@ function App() {
               <div className="web-recipe-list">
                 {webRecipes.map((recipe) => (
                   <article className="web-recipe-card" key={recipe.source_url}>
-                    <div className="web-recipe-kicker">Direkt von der Quelle extrahiert</div>
+                    <div className="web-recipe-kicker">Aus der Quelle extrahiert und auf Deutsch umformuliert</div>
                     <h3>{recipe.name}</h3>
                     <section>
                       <strong>Zutaten</strong>
@@ -560,7 +560,7 @@ function App() {
               <div className="no-cocktails-placeholder">
                 <span style={{ fontSize: "36px", marginBottom: "12px" }}>🌐</span>
                 <p style={{ fontWeight: "600", marginBottom: "4px", color: "#fff" }}>Nenne einen konkreten Cocktail.</p>
-                <p style={{ fontSize: "12px" }}>Das Testsystem extrahiert das Rezept direkt von der IBA-Webseite.</p>
+                <p style={{ fontSize: "12px" }}>Das Rezept stammt von der IBA-Webseite und wird von der LLM auf Deutsch in eigenen Worten wiedergegeben.</p>
               </div>
             )
           ) : rouletteResult && !rouletteResult.completed ? (
