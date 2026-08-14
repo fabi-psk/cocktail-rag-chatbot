@@ -166,6 +166,14 @@ class CocktailSearchCriteria(BaseModel):
         return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+class CatalogContext(BaseModel):
+    criteria: CocktailSearchCriteria | None = None
+    shown_names: list[str] = Field(default_factory=list)
+    referenced_cocktail: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class CocktailResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 

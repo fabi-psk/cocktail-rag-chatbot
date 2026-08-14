@@ -7,7 +7,14 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from llm.llm_client import InvalidLLMOutputError, LLMError, extract_json_object, query_ollama
-from models.cocktail import ChatIntent, ChatMessage, CocktailPreferences, CocktailSearchCriteria, IntentAnalysis
+from models.cocktail import (
+    CatalogContext,
+    ChatIntent,
+    ChatMessage,
+    CocktailPreferences,
+    CocktailSearchCriteria,
+    IntentAnalysis,
+)
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
 from services.cocktail_service import cocktail_contains, matches_strength, normalize_text, search_cocktails, term_matches
 from services.conversation_service import ConversationService, conversation_service
@@ -31,7 +38,8 @@ def singular_token(token: str) -> str:
 
 NAME_MATCH_STOP_WORDS = {
     "aber", "auch", "das", "dem", "den", "der", "die", "ein", "eine", "einen",
-    "einer", "er", "es", "ist", "mit", "nicht", "oder", "sind", "und", "was",
+    "einer", "er", "es", "euer", "eure", "eurer", "in", "im", "ist", "karte",
+    "mit", "nicht", "of", "oder", "sind", "the", "und", "was",
 }
 
 
@@ -74,6 +82,7 @@ def find_cocktails_by_name(
         if not name_tokens:
             continue
         overlap = sum(token in message_tokens for token in name_tokens)
+        token_name_match = overlap == len(name_tokens)
         compact_name = normalized_name.replace(" ", "")
         compact_name_match = compact_name in compact_message
         fuzzy_name_match = (
@@ -83,7 +92,7 @@ def find_cocktails_by_name(
                 compact_name, ordered_message_tokens, len(normalized_name.split())
             ) >= 0.86
         )
-        if not overlap and not compact_name_match and not fuzzy_name_match:
+        if not token_name_match and not compact_name_match and not fuzzy_name_match:
             continue
         missing_name_tokens = 0 if compact_name_match or fuzzy_name_match else len(name_tokens) - overlap
         match_rank = 0 if compact_name_match else 1 if fuzzy_name_match else 2
@@ -101,7 +110,7 @@ def detect_queried_flavor(user_message: str, cocktails: list[dict[str, Any]]) ->
 def is_availability_question(user_message: str) -> bool:
     normalized = normalize_text(user_message)
     return any(phrase in normalized for phrase in {
-        "habt ihr", "hast du", "gibt es", "gibts", "auf der karte", "im angebot",
+        "habt ihr", "habe ihr", "hast du", "gibt es", "gibts", "auf der karte", "im angebot",
     })
 
 
@@ -113,7 +122,7 @@ def is_catalog_query(user_message: str) -> bool:
             "vorschlag", "vorgeschlagen", "empfehl", "schlaegst", "schlagst",
         })
     )
-    return recommendation_explanation or is_availability_question(user_message) or any(phrase in normalized for phrase in {
+    return recommendation_explanation or is_availability_question(user_message) or is_more_catalog_request(user_message) or any(phrase in normalized for phrase in {
         "welche cocktails enthalten", "welche drinks enthalten", "welche cocktails mit",
         "welche drinks mit", "welche cocktails sind", "welche drinks sind",
     })
@@ -127,6 +136,64 @@ def is_recommendation_explanation_query(user_message: str) -> bool:
             "vorschlag", "vorgeschlagen", "empfehl", "schlaegst", "schlagst",
         })
     )
+
+
+def is_previous_cocktail_detail_query(
+    user_message: str,
+    cocktails: list[dict[str, Any]],
+) -> bool:
+    normalized = normalize_text(user_message)
+    words = set(normalized.split())
+    pronouns = {"der", "den", "dieser", "er", "ihn"}
+    detail_markers = {
+        "preis", "kostet", "zutat", "zutaten", "drin", "enthalten", "rezept",
+        "staerke", "stärke", "stark", "beschreibung", "geschmack", "schmeckt",
+    }
+    return bool(
+        words.intersection(pronouns)
+        and (
+            detect_queried_flavor(user_message, cocktails)
+            or any(marker in normalized for marker in detail_markers)
+        )
+    )
+
+
+def resolve_previous_cocktail_detail_message(
+    user_message: str,
+    cocktail_name: str,
+    cocktails: list[dict[str, Any]],
+) -> str:
+    normalized = normalize_text(user_message)
+    queried_flavor = detect_queried_flavor(user_message, cocktails)
+    if queried_flavor:
+        return f"Ist {cocktail_name} {queried_flavor}?"
+    if any(marker in normalized for marker in {"preis", "kostet", "kosten"}):
+        return f"Was kostet {cocktail_name}?"
+    if any(marker in normalized for marker in {"zutat", "zutaten", "drin", "enthalten", "rezept"}):
+        return f"Welche Zutaten sind in {cocktail_name}?"
+    if any(marker in normalized for marker in {"staerke", "stärke", "stark"}):
+        return f"Wie stark ist {cocktail_name}?"
+    return f"Wie schmeckt {cocktail_name}?"
+
+
+def is_more_catalog_request(user_message: str) -> bool:
+    normalized = normalize_text(user_message)
+    return any(phrase in normalized for phrase in {
+        "noch mehr", "weitere", "mehr davon", "sonst noch",
+    })
+
+
+def is_explicit_catalog_list_query(
+    user_message: str,
+    cocktails: list[dict[str, Any]],
+) -> bool:
+    if not is_catalog_query(user_message):
+        return False
+    normalized = normalize_text(user_message)
+    list_markers = {"cocktail", "cocktails", "drink", "drinks", "etwas", "welche"}
+    if not any(marker in normalized.split() for marker in list_markers):
+        return False
+    return has_search_criteria(fallback_search_criteria(user_message, cocktails))
 
 
 def is_greeting_message(user_message: str) -> bool:
@@ -377,18 +444,38 @@ def normalize_interpretation(
     analysis: IntentAnalysis,
     user_message: str,
     cocktails: list[dict[str, Any]],
-    history: list[ChatMessage] | None,
+    catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
+    if is_more_catalog_request(user_message):
+        return analysis.model_copy(update={
+            "intent": "catalog_query",
+            "action": "list_catalog",
+            "cocktail_name": None,
+            "context_mode": "previous_preferences",
+            "confidence": 1.0,
+            "answer": "",
+        })
+
+    if is_explicit_catalog_list_query(user_message, cocktails):
+        criteria = fallback_search_criteria(user_message, cocktails)
+        value = criteria.geschmack or criteria.spirituose or criteria.staerke
+        return analysis.model_copy(update={
+            "intent": "catalog_query",
+            "action": "list_catalog",
+            "cocktail_name": None,
+            "value": value,
+            "context_mode": "new_query",
+        })
+
     cocktail_name = canonical_cocktail_name(analysis.cocktail_name, cocktails)
-    should_resolve_from_history = (
+    should_resolve_reference = (
         analysis.action == "explain_recommendation"
         or analysis.context_mode == "previous_cocktail"
     )
-    if not cocktail_name and should_resolve_from_history and history:
-        for message in reversed(history[-6:]):
-            cocktail_name = detect_cocktail_name(message.content, cocktails)
-            if cocktail_name:
-                break
+    if not cocktail_name and should_resolve_reference and catalog_context:
+        cocktail_name = canonical_cocktail_name(
+            catalog_context.referenced_cocktail, cocktails
+        )
 
     value = analysis.value
     if analysis.attribute == "flavor":
@@ -636,15 +723,15 @@ def build_catalog_query_response(
     user_message: str,
     cocktails: list[dict[str, Any]],
     preferences: CocktailPreferences,
-    history: list[ChatMessage] | None = None,
+    catalog_context: CatalogContext | None = None,
 ) -> dict[str, Any]:
+    catalog_context = catalog_context or CatalogContext()
     if is_recommendation_explanation_query(user_message):
         referenced = find_cocktails_by_name(user_message, cocktails)
-        if not referenced and history:
-            for message in reversed(history[-6:]):
-                referenced = find_cocktails_by_name(message.content, cocktails)
-                if referenced:
-                    break
+        if not referenced and catalog_context.referenced_cocktail:
+            referenced = find_cocktails_by_name(
+                catalog_context.referenced_cocktail, cocktails
+            )
 
         cocktail = referenced[0] if referenced else None
         queried_flavor = detect_queried_flavor(user_message, cocktails)
@@ -674,29 +761,66 @@ def build_catalog_query_response(
                 "preferences": preferences.model_dump(),
             }
 
+    if (
+        catalog_context.referenced_cocktail
+        and is_previous_cocktail_detail_query(user_message, cocktails)
+    ):
+        cocktail_name = canonical_cocktail_name(
+            catalog_context.referenced_cocktail, cocktails
+        )
+        if cocktail_name:
+            resolved_message = resolve_previous_cocktail_detail_message(
+                user_message, cocktail_name, cocktails
+            )
+            return build_cocktail_detail_response(
+                resolved_message, cocktails, preferences
+            )
+
     if not is_catalog_query(user_message) and is_cocktail_detail_query(user_message, cocktails):
         return build_cocktail_detail_response(user_message, cocktails, preferences)
 
-    name_matches = find_cocktails_by_name(user_message, cocktails)
+    more_request = is_more_catalog_request(user_message)
+    criteria: CocktailSearchCriteria | None = None
+    name_matches = [] if more_request else find_cocktails_by_name(user_message, cocktails)
     if name_matches:
         base_tokens = {
-            singular_token(token) for token in normalize_text(name_matches[0].get("name", "")).split()
+            singular_token(token)
+            for token in normalize_text(name_matches[0].get("name", "")).split()
+            if token not in NAME_MATCH_STOP_WORDS
         }
         matches = [
-            item for item in name_matches
-            if base_tokens.intersection(
+            item for item in cocktails
+            if base_tokens.issubset({
                 singular_token(token) for token in normalize_text(item.get("name", "")).split()
-            )
+                if token not in NAME_MATCH_STOP_WORDS
+            })
         ]
     else:
         criteria = fallback_search_criteria(user_message, cocktails)
+        normalized_words = set(normalize_text(user_message).split())
+        concrete_unknown_cocktail = (
+            is_availability_question(user_message)
+            and not is_explicit_catalog_list_query(user_message, cocktails)
+            and bool(normalized_words.intersection({"ein", "eine", "einen"}))
+        )
+        if concrete_unknown_cocktail:
+            criteria = CocktailSearchCriteria()
+        if more_request and catalog_context.criteria:
+            criteria = catalog_context.criteria
         if message_mentions_any(user_message, {"alkoholfrei", "ohne alkohol"}):
             criteria = criteria.model_copy(update={"staerke": "alkoholfrei"})
-        matches = search_cocktails(criteria, cocktails, limit=10) if has_search_criteria(criteria) else []
+        matches = search_cocktails(criteria, cocktails, limit=1000) if has_search_criteria(criteria) else []
+        if more_request:
+            shown_names = set(catalog_context.shown_names)
+            matches = [cocktail for cocktail in matches if cocktail["name"] not in shown_names]
+        matches = matches[:10]
 
     if matches:
         names = [item["name"] for item in matches]
-        answer = "Auf unserer Karte gibt es: " + ", ".join(names) + "."
+        prefix = "Auf unserer Karte gibt es außerdem: " if more_request else "Auf unserer Karte gibt es: "
+        answer = prefix + ", ".join(names) + "."
+    elif more_request:
+        answer = "Weitere passende Cocktails habe ich zu dieser Suche nicht auf unserer Karte."
     else:
         answer = "Dazu habe ich auf unserer Cocktailkarte keinen passenden Eintrag gefunden."
 
@@ -706,7 +830,7 @@ def build_catalog_query_response(
         "message": answer,
         "answer": answer,
         "cocktails": matches,
-        "criteria": None,
+        "criteria": criteria.model_dump() if criteria and has_search_criteria(criteria) else None,
         "preferences": preferences.model_dump(),
     }
 
@@ -1416,18 +1540,24 @@ async def build_chat_response(
         }
 
     current_preferences = conversations.get_preferences(session_id)
+    catalog_context = conversations.get_catalog_context(session_id)
     local_preferences = local_update_preferences(current_preferences, user_message, cocktails)
     detected_intent: ChatIntent | None = None
     generated_intent_answer = ""
     interpretation: IntentAnalysis | None = None
     if intent_routing_enabled():
         local_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
+        if (
+            catalog_context.referenced_cocktail
+            and is_previous_cocktail_detail_query(user_message, cocktails)
+        ):
+            local_intent = "catalog_query"
         try:
             interpretation = normalize_interpretation(
                 await analyze_intent_with_llm(user_message, history, cocktails),
                 user_message,
                 cocktails,
-                history,
+                catalog_context,
             )
             detected_intent = interpretation.intent
             generated_intent_answer = interpretation.answer
@@ -1462,9 +1592,30 @@ async def build_chat_response(
                 if interpretation
                 else user_message
             )
-            return build_catalog_query_response(
-                interpreted_message, cocktails, current_preferences, history
+            response = build_catalog_query_response(
+                interpreted_message, cocktails, current_preferences, catalog_context
             )
+            criteria_payload = response.get("criteria")
+            if criteria_payload:
+                criteria = CocktailSearchCriteria.model_validate(criteria_payload)
+                conversations.record_catalog_search(
+                    session_id,
+                    criteria,
+                    [cocktail["name"] for cocktail in response.get("cocktails", [])],
+                    append=is_more_catalog_request(user_message),
+                )
+            else:
+                referenced_name = (
+                    interpretation.cocktail_name
+                    if interpretation and interpretation.cocktail_name
+                    else detect_cocktail_name(user_message, cocktails)
+                )
+                if not referenced_name and len(response.get("cocktails", [])) == 1:
+                    referenced_name = response["cocktails"][0]["name"]
+                conversations.set_referenced_cocktail(
+                    session_id, referenced_name
+                )
+            return response
 
     if intent_routing_enabled():
         if interpretation:

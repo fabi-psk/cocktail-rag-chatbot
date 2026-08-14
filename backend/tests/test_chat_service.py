@@ -403,6 +403,22 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual([item["name"] for item in response["cocktails"]], ["Pina Colada"])
         self.assertEqual(response["answer"], "Ja, Pina Colada ist laut unserer Karte cremig.")
 
+    def test_unknown_cocktail_name_does_not_match_shared_name_word(self):
+        cocktails = [{
+            **COCKTAILS[2],
+            "name": "Gin Fizz",
+            "geschmack": ["sauer"],
+        }]
+
+        response = chat_service.build_catalog_query_response(
+            "Habt ihr einen Gin Sour?",
+            cocktails,
+            chat_service.CocktailPreferences(),
+        )
+
+        self.assertEqual(response["cocktails"], [])
+        self.assertNotIn("Gin Fizz", response["answer"])
+
     def test_flavor_fact_question_uses_llm_plan_and_does_not_store_flavor(self):
         pina_colada = {
             **COCKTAILS[0],
@@ -499,6 +515,148 @@ class ChatServiceTest(unittest.TestCase):
         )
         self.assertNotIn("Gin Sour ist", response["answer"])
 
+    def test_plural_flavor_query_does_not_match_cocktail_through_preposition(self):
+        cocktails = COCKTAILS + [{
+            **COCKTAILS[0],
+            "name": "Sex in the Forst",
+        }]
+
+        response = chat_service.build_catalog_query_response(
+            "Habe ihr fruchtige Cocktails in eurer Karte?",
+            cocktails,
+            chat_service.CocktailPreferences(),
+        )
+
+        self.assertEqual(
+            [cocktail["name"] for cocktail in response["cocktails"]],
+            ["Caribbean Dream", "Bahama Mama", "Sex in the Forst"],
+        )
+        self.assertNotIn("laut unserer Karte fruchtig", response["answer"])
+
+    def test_more_catalog_results_reuse_previous_flavor_and_skip_shown_cocktails(self):
+        catalog_context = chat_service.CatalogContext(
+            criteria=CocktailSearchCriteria(geschmack="fruchtig"),
+            shown_names=["Caribbean Dream"],
+        )
+
+        response = chat_service.build_catalog_query_response(
+            "Habt ihr noch mehr?",
+            COCKTAILS,
+            chat_service.CocktailPreferences(),
+            catalog_context,
+        )
+
+        self.assertEqual(
+            [cocktail["name"] for cocktail in response["cocktails"]],
+            ["Bahama Mama"],
+        )
+        self.assertIn("außerdem", response["answer"])
+
+    def test_more_catalog_request_does_not_infer_bitter_from_polite_word(self):
+        cocktails = COCKTAILS + [{
+            **COCKTAILS[0],
+            "name": "Bitter Drink",
+            "geschmack": ["leicht bitter"],
+        }]
+        catalog_context = chat_service.CatalogContext(
+            criteria=CocktailSearchCriteria(geschmack="fruchtig"),
+            shown_names=["Caribbean Dream"],
+        )
+
+        response = chat_service.build_catalog_query_response(
+            "Noch mehr bitte",
+            cocktails,
+            chat_service.CocktailPreferences(),
+            catalog_context,
+        )
+
+        self.assertEqual(response["criteria"]["geschmack"], "fruchtig")
+        self.assertNotIn("Bitter Drink", [
+            cocktail["name"] for cocktail in response["cocktails"]
+        ])
+
+    def test_more_catalog_results_use_session_state_without_chat_history(self):
+        cocktails = [
+            {**COCKTAILS[0], "name": f"Fruit Drink {index}"}
+            for index in range(11)
+        ]
+
+        class FruitRepository:
+            def list_all(self):
+                return cocktails
+
+        conversations = ConversationService()
+        first = asyncio.run(
+            chat_service.build_chat_response(
+                "Habt ihr fruchtige Cocktails?",
+                history=[],
+                repository=FruitRepository(),
+                session_id="structured-catalog",
+                conversations=conversations,
+            )
+        )
+        second = asyncio.run(
+            chat_service.build_chat_response(
+                "Noch mehr bitte",
+                history=[],
+                repository=FruitRepository(),
+                session_id="structured-catalog",
+                conversations=conversations,
+            )
+        )
+
+        self.assertEqual(len(first["cocktails"]), 10)
+        self.assertEqual(
+            [cocktail["name"] for cocktail in second["cocktails"]],
+            ["Fruit Drink 10"],
+        )
+        context = conversations.get_catalog_context("structured-catalog")
+        self.assertEqual(context.criteria.geschmack, "fruchtig")
+        self.assertEqual(len(context.shown_names), 11)
+
+    def test_more_catalog_request_overrides_unknown_llm_interpretation(self):
+        analysis = chat_service.IntentAnalysis(
+            intent="unknown",
+            action="clarify",
+            context_mode="unclear",
+            confidence=0.4,
+            answer="Was meinst du?",
+        )
+
+        normalized = chat_service.normalize_interpretation(
+            analysis,
+            "Noch mehr bitte",
+            COCKTAILS,
+            chat_service.CatalogContext(),
+        )
+
+        self.assertEqual(normalized.intent, "catalog_query")
+        self.assertEqual(normalized.action, "list_catalog")
+        self.assertEqual(normalized.context_mode, "previous_preferences")
+        self.assertEqual(normalized.confidence, 1.0)
+
+    def test_llm_single_cocktail_guess_is_overridden_for_plural_list_query(self):
+        analysis = chat_service.IntentAnalysis(
+            intent="catalog_query",
+            action="check_attribute",
+            cocktail_name="Caribbean Dream",
+            attribute="flavor",
+            value="fruchtig",
+            context_mode="previous_cocktail",
+            confidence=0.9,
+        )
+
+        normalized = chat_service.normalize_interpretation(
+            analysis,
+            "Habt ihr fruchtige Cocktails auf der Karte?",
+            COCKTAILS,
+            chat_service.CatalogContext(),
+        )
+
+        self.assertEqual(normalized.action, "list_catalog")
+        self.assertIsNone(normalized.cocktail_name)
+        self.assertEqual(normalized.context_mode, "new_query")
+
     def test_invalid_llm_attribute_is_inferred_from_catalog_value(self):
         sanitized = chat_service.sanitize_interpretation_payload(
             {
@@ -516,7 +674,7 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(sanitized["attribute"], "flavor")
         self.assertEqual(sanitized["context_mode"], "new_query")
 
-    def test_previous_cocktail_mode_resolves_reference_from_history(self):
+    def test_previous_cocktail_mode_resolves_structured_reference(self):
         async def previous_cocktail_query(*args, **kwargs):
             return chat_service.IntentAnalysis(
                 intent="catalog_query",
@@ -527,22 +685,56 @@ class ChatServiceTest(unittest.TestCase):
                 confidence=0.94,
             )
 
-        history = [
-            chat_service.ChatMessage(role="user", content="Habt ihr einen Gin Sour?"),
-            chat_service.ChatMessage(role="assistant", content="Ja, Gin Sour ist auf der Karte."),
+        conversations = ConversationService()
+        conversations.set_referenced_cocktail("previous-cocktail", "Gin Sour")
+        misleading_history = [
+            chat_service.ChatMessage(role="assistant", content="Caribbean Dream ist lecker."),
         ]
         with patch.object(
             chat_service, "analyze_intent_with_llm", previous_cocktail_query
         ):
             response = asyncio.run(
                 chat_service.build_chat_response(
-                    "Ist der auch sauer?", history=history, repository=FakeRepository()
+                    "Ist der auch sauer?",
+                    history=misleading_history,
+                    repository=FakeRepository(),
+                    session_id="previous-cocktail",
+                    conversations=conversations,
                 )
             )
 
         self.assertEqual(response["intent"], "catalog_query")
         self.assertEqual([item["name"] for item in response["cocktails"]], ["Gin Sour"])
         self.assertIn("Ja, Gin Sour", response["answer"])
+
+    def test_previous_cocktail_reference_works_without_llm_or_chat_history(self):
+        conversations = ConversationService()
+        first = asyncio.run(
+            chat_service.build_chat_response(
+                "Habt ihr einen Gin Sour?",
+                history=[],
+                repository=FakeRepository(),
+                session_id="structured-reference",
+                conversations=conversations,
+            )
+        )
+        second = asyncio.run(
+            chat_service.build_chat_response(
+                "Ist der auch sauer?",
+                history=[],
+                repository=FakeRepository(),
+                session_id="structured-reference",
+                conversations=conversations,
+            )
+        )
+
+        self.assertEqual([item["name"] for item in first["cocktails"]], ["Gin Sour"])
+        self.assertEqual(
+            conversations.get_catalog_context("structured-reference").referenced_cocktail,
+            "Gin Sour",
+        )
+        self.assertEqual([item["name"] for item in second["cocktails"]], ["Gin Sour"])
+        self.assertIn("Ja, Gin Sour", second["answer"])
 
     def test_llm_first_recommendation_cannot_infer_unmentioned_ingredient(self):
         async def recommendation_interpretation(*args, **kwargs):
@@ -604,21 +796,20 @@ class ChatServiceTest(unittest.TestCase):
             def list_all(self):
                 return COCKTAILS + [pina_colada]
 
-        history = [
-            chat_service.ChatMessage(
-                role="user", content="Aber die Pina Colada ist doch auch cremig, oder nicht?"
-            ),
-            chat_service.ChatMessage(
-                role="assistant", content="Ja, Pina Colada ist laut unserer Karte cremig."
-            ),
+        conversations = ConversationService()
+        conversations.set_referenced_cocktail(
+            "recommendation-explanation", "Pina Colada"
+        )
+        misleading_history = [
+            chat_service.ChatMessage(role="assistant", content="Gin Sour ist auf der Karte."),
         ]
         response = asyncio.run(
             chat_service.build_chat_response(
                 "Wieso schlägst du ihn uns dann nicht vor bei cremig?",
-                history=history,
+                history=misleading_history,
                 repository=PinaRepository(),
                 session_id="recommendation-explanation",
-                conversations=ConversationService(),
+                conversations=conversations,
             )
         )
 
@@ -680,6 +871,22 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(response["intent"], "reset_preferences")
         self.assertEqual(conversations.get_preferences("reset-me").spirits, [])
+
+    def test_reset_clears_structured_catalog_context(self):
+        conversations = ConversationService()
+        conversations.record_catalog_search(
+            "reset-context",
+            CocktailSearchCriteria(geschmack="fruchtig"),
+            ["Caribbean Dream"],
+        )
+        conversations.set_referenced_cocktail("reset-context", "Caribbean Dream")
+
+        conversations.reset_preferences("reset-context")
+
+        self.assertEqual(
+            conversations.get_catalog_context("reset-context"),
+            chat_service.CatalogContext(),
+        )
 
     def test_intent_routing_can_be_disabled(self):
         async def fake_update_preferences_with_llm(message, preferences, cocktails):
