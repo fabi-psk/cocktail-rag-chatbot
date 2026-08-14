@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import "./App.css";
-import { removePreference, resetChatSession, sendChatMessage } from "./services/api";
+import { fetchBackendStatus, removePreference, resetChatSession, sendChatMessage } from "./services/api";
 
 const createSessionId = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -200,6 +200,7 @@ function App() {
   const [rouletteResult, setRouletteResult] = useState(null);
   const [expandedCocktails, setExpandedCocktails] = useState({});
   const [webRecipes, setWebRecipes] = useState([]);
+  const [ollamaConnected, setOllamaConnected] = useState(null);
 
   const messagesEndRef = useRef(null);
   const sessionIdRef = useRef(createSessionId());
@@ -213,6 +214,24 @@ function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshStatus = async () => {
+      try {
+        const status = await fetchBackendStatus();
+        if (active) setOllamaConnected(Boolean(status.ollama_connected));
+      } catch {
+        if (active) setOllamaConnected(false);
+      }
+    };
+    refreshStatus();
+    const interval = window.setInterval(refreshStatus, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const applyChatData = (data) => {
     setWebRecipes(data.web_recipes || []);
@@ -486,9 +505,15 @@ function App() {
               Für Zuhause
             </button>
           </div>
-          <div className="status-badge">
+          <div className={`status-badge ${mode === "menu" && ollamaConnected === false ? "offline" : ""}`}>
             <span className="status-dot"></span>
-            {mode === "home" ? "Web-Rezepttest aktiv" : "KI-Server (Ollama) verbunden"}
+            {mode === "home"
+              ? "Web-Rezepttest aktiv"
+              : ollamaConnected === null
+                ? "KI-Server wird geprüft"
+                : ollamaConnected
+                  ? "KI-Server (Ollama) verbunden"
+                  : "KI-Server offline · Fallback aktiv"}
           </div>
         </div>
       </div>

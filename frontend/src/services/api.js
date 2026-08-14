@@ -20,6 +20,10 @@ export function fetchCocktails() {
   return request("/cocktails");
 }
 
+export function fetchBackendStatus() {
+  return request("/");
+}
+
 export function sendChatMessage({ sessionId, message, history, mode = "menu" }) {
   return request("/chat", {
     method: "POST",

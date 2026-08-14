@@ -130,6 +130,16 @@ body {
   gap: 6px;
 }
 
+.status-badge.offline {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.status-badge.offline .status-dot {
+  background: #ef4444;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
