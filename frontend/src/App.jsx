@@ -560,7 +560,7 @@ function App() {
               <div className="no-cocktails-placeholder">
                 <span style={{ fontSize: "36px", marginBottom: "12px" }}>🌐</span>
                 <p style={{ fontWeight: "600", marginBottom: "4px", color: "#fff" }}>Nenne einen konkreten Cocktail.</p>
-                <p style={{ fontSize: "12px" }}>Das Rezept stammt von der IBA-Webseite und wird von der LLM auf Deutsch in eigenen Worten wiedergegeben.</p>
+                <p style={{ fontSize: "12px" }}>Das Rezept stammt von Cocktaildatenbank.de und wird von der LLM übersichtlich in eigenen Worten wiedergegeben.</p>
               </div>
             )
           ) : rouletteResult && !rouletteResult.completed ? (
