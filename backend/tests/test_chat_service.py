@@ -728,6 +728,16 @@ class ChatServiceTest(unittest.TestCase):
         self.assertIsNone(preferences.strength)
         self.assertIsNone(preferences.alcoholic)
 
+    def test_spirit_preference_is_not_duplicated_as_ingredient(self):
+        preferences = chat_service.local_update_preferences(
+            chat_service.CocktailPreferences(),
+            "Ich mag Rum",
+            COCKTAILS,
+        )
+
+        self.assertEqual(preferences.spirits, ["Rum"])
+        self.assertEqual(preferences.liked_ingredients, [])
+
     def test_llm_preferences_are_limited_to_explicit_local_signal(self):
         current = chat_service.CocktailPreferences()
         local = chat_service.local_update_preferences(current, "Ich mag fruchtige Cocktails", COCKTAILS)

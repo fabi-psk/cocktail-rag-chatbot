@@ -909,6 +909,11 @@ def canonicalize_preferences(
 
     spirits = remove_overlaps(spirits, disliked_ingredients)
     liked_ingredients = remove_overlaps(liked_ingredients, disliked_ingredients)
+    spirit_names = {normalize_text(value) for value in spirits}
+    liked_ingredients = [
+        value for value in liked_ingredients
+        if normalize_text(value) not in spirit_names
+    ]
     liked_flavors = remove_overlaps(liked_flavors, disliked_flavors)
 
     return CocktailPreferences(
