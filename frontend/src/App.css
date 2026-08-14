@@ -21,6 +21,29 @@ body {
   padding: 0;
 }
 
+.app-shell {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: width 0.35s ease, height 0.35s ease, border-radius 0.35s ease, box-shadow 0.35s ease;
+}
+
+.app-shell.mobile-presentation {
+  width: min(390px, calc(100vw - 24px));
+  height: min(844px, calc(100svh - 24px));
+  margin: auto;
+  overflow: hidden;
+  border: 8px solid #171923;
+  border-radius: 38px;
+  background: #080a10;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 28px 80px rgba(0, 0, 0, 0.62),
+    0 0 55px rgba(139, 92, 246, 0.16);
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -144,6 +167,121 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.settings-control {
+  position: relative;
+  z-index: 20;
+}
+
+.settings-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.settings-button:hover,
+.settings-button.active {
+  border-color: rgba(192, 132, 252, 0.62);
+  background: rgba(88, 28, 135, 0.28);
+  transform: translateY(-1px);
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  padding: 10px;
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  border-radius: 18px;
+  background: rgba(12, 15, 25, 0.97);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(22px);
+  animation: settings-appear 0.18s ease-out;
+}
+
+.settings-menu-title {
+  padding: 3px 8px 8px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.settings-menu button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: #cbd5e1;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-menu button:hover,
+.settings-menu button.selected {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.settings-menu strong,
+.settings-menu small {
+  display: block;
+}
+
+.settings-menu strong {
+  color: #f8fafc;
+  font-size: 12px;
+}
+
+.settings-menu small {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.settings-option-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(129, 140, 248, 0.13);
+  color: #c4b5fd;
+  font-size: 18px;
+}
+
+.settings-check {
+  width: 18px;
+  color: #6ee7b7;
+  font-size: 15px;
+  font-weight: 900;
+  text-align: center;
+}
+
+@keyframes settings-appear {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .mode-switch {
@@ -359,32 +497,38 @@ body {
   transform: scale(1.03);
 }
 
-.random-action-row {
-  display: flex;
+.primary-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: 10px;
   margin: 2px 0 14px;
 }
 
-.random-action-button {
+.random-action-button,
+.reset-action-button {
   width: 100%;
-  min-height: 48px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  border: 1px solid rgba(16, 185, 129, 0.58);
   border-radius: 15px;
-  background:
-    radial-gradient(circle at 12% 50%, rgba(52, 211, 153, 0.22), transparent 30%),
-    linear-gradient(135deg, rgba(6, 78, 59, 0.72), rgba(15, 118, 110, 0.34));
-  color: #d1fae5;
   font: inherit;
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.01em;
   cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.random-action-button {
+  border: 1px solid rgba(16, 185, 129, 0.58);
+  background:
+    radial-gradient(circle at 12% 50%, rgba(52, 211, 153, 0.22), transparent 30%),
+    linear-gradient(135deg, rgba(6, 78, 59, 0.72), rgba(15, 118, 110, 0.34));
+  color: #d1fae5;
   box-shadow: 0 10px 24px rgba(5, 150, 105, 0.16);
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .random-action-button:hover:not(:disabled) {
@@ -393,12 +537,14 @@ body {
   box-shadow: 0 14px 30px rgba(16, 185, 129, 0.28);
 }
 
-.random-action-button:disabled {
+.random-action-button:disabled,
+.reset-action-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
 }
 
-.random-action-icon {
+.random-action-icon,
+.reset-action-icon {
   display: grid;
   place-items: center;
   width: 30px;
@@ -411,6 +557,29 @@ body {
 .random-action-arrow {
   color: #6ee7b7;
   font-size: 20px;
+}
+
+.reset-action-button {
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding-inline: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  background:
+    radial-gradient(circle at 12% 50%, rgba(248, 113, 113, 0.18), transparent 30%),
+    linear-gradient(135deg, rgba(127, 29, 29, 0.38), rgba(153, 27, 27, 0.2));
+  color: #fca5a5;
+  box-shadow: 0 10px 24px rgba(185, 28, 28, 0.12);
+}
+
+.reset-action-icon {
+  background: rgba(254, 202, 202, 0.12);
+}
+
+.reset-action-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(252, 165, 165, 0.78);
+  background: rgba(153, 27, 27, 0.28);
+  box-shadow: 0 14px 30px rgba(185, 28, 28, 0.22);
 }
 
 /* Cocktail list styling in panel */
@@ -707,5 +876,202 @@ body {
   to {
     transform: scale(1.02) translateY(-1px);
     filter: brightness(1.05);
+  }
+}
+
+/* Umschaltbare Smartphone-Vorschau fuer Praesentationen. */
+.app-shell.mobile-presentation {
+  box-sizing: border-box;
+}
+
+.app-shell.mobile-presentation .chat-header {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(8, 10, 16, 0.96);
+}
+
+.app-shell.mobile-presentation .chat-header-title {
+  width: 100%;
+  gap: 9px;
+}
+
+.app-shell.mobile-presentation .chat-header-title > span {
+  font-size: 23px !important;
+}
+
+.app-shell.mobile-presentation .chat-header-title h1 {
+  font-size: 19px;
+}
+
+.app-shell.mobile-presentation .chat-header-title div div {
+  display: none;
+}
+
+.app-shell.mobile-presentation .header-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-shell.mobile-presentation .mode-switch {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.app-shell.mobile-presentation .mode-switch button {
+  flex: 1;
+  padding: 7px 8px;
+}
+
+.app-shell.mobile-presentation .status-badge {
+  display: none;
+}
+
+.app-shell.mobile-presentation .settings-button {
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  font-size: 16px;
+}
+
+.app-shell.mobile-presentation .settings-button span:last-child {
+  display: none;
+}
+
+.app-shell.mobile-presentation .settings-menu {
+  width: min(280px, calc(100vw - 62px));
+}
+
+.app-shell.mobile-presentation .chat-container {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.app-shell.mobile-presentation .chat-window {
+  flex: 0 0 610px;
+  min-height: 610px;
+  border-radius: 20px;
+}
+
+.app-shell.mobile-presentation .chat-messages {
+  padding: 14px;
+  gap: 12px;
+}
+
+.app-shell.mobile-presentation .message-bubble {
+  max-width: 88%;
+  padding: 11px 13px;
+  border-radius: 15px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.app-shell.mobile-presentation .chat-input-area {
+  padding: 12px;
+}
+
+.app-shell.mobile-presentation .suggestions-bar {
+  flex-wrap: nowrap;
+  margin-inline: -2px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-shell.mobile-presentation .suggestions-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell.mobile-presentation .suggestion-pill {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  font-size: 11px;
+}
+
+.app-shell.mobile-presentation .primary-action-row {
+  gap: 7px;
+}
+
+.app-shell.mobile-presentation .random-action-button,
+.app-shell.mobile-presentation .reset-action-button {
+  min-height: 46px;
+  font-size: 11px;
+}
+
+.app-shell.mobile-presentation .random-action-button {
+  gap: 7px;
+  padding: 8px 10px;
+}
+
+.app-shell.mobile-presentation .reset-action-button {
+  gap: 5px;
+  padding-inline: 7px;
+}
+
+.app-shell.mobile-presentation .random-action-icon,
+.app-shell.mobile-presentation .reset-action-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.app-shell.mobile-presentation .random-action-arrow {
+  font-size: 16px;
+}
+
+.app-shell.mobile-presentation .chat-input-form {
+  gap: 7px;
+}
+
+.app-shell.mobile-presentation .chat-input {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 13px;
+  font-size: 12px;
+}
+
+.app-shell.mobile-presentation .send-button {
+  padding: 0 13px;
+  border-radius: 13px;
+  font-size: 12px;
+}
+
+.app-shell.mobile-presentation .cocktail-panel {
+  flex: 0 0 auto;
+  min-height: 380px;
+  max-height: none;
+  padding: 15px;
+  border-radius: 20px;
+  overflow-y: visible;
+}
+
+.app-shell.mobile-presentation .panel-title {
+  font-size: 16px;
+}
+
+.app-shell.mobile-presentation .cocktail-card,
+.app-shell.mobile-presentation .web-recipe-card {
+  padding: 14px;
+}
+
+@media (max-width: 430px) {
+  .app-shell.mobile-presentation {
+    width: 100%;
+    height: 100svh;
+    border: 0;
+    border-radius: 0;
   }
 }

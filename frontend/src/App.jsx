@@ -125,6 +125,14 @@ function App() {
   const [expandedCocktails, setExpandedCocktails] = useState({});
   const [webRecipes, setWebRecipes] = useState([]);
   const [ollamaConnected, setOllamaConnected] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return window.localStorage.getItem("cocktailgpt-view") === "mobile" ? "mobile" : "desktop";
+    } catch {
+      return "desktop";
+    }
+  });
 
   const messagesEndRef = useRef(null);
   const sessionIdRef = useRef(createSessionId());
@@ -156,6 +164,14 @@ function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("cocktailgpt-view", viewMode);
+    } catch {
+      // Die Ansicht funktioniert auch, wenn der Browser keinen lokalen Speicher erlaubt.
+    }
+  }, [viewMode]);
 
   const applyChatData = (data) => {
     setWebRecipes(data.web_recipes || []);
@@ -365,8 +381,7 @@ function App() {
     { label: "💪 Stark", text: "Empfiehl mir einen starken Cocktail", color: "#a855f7", glow: "rgba(168, 85, 247, 0.3)" },
     { label: "🚫 Alkoholfrei", text: "Empfiehl mir einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
     { label: "🍋 Sauer", text: "Empfiehl mir einen sauren Cocktail", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
-    { label: "🥥 Ohne Kokos", text: "Empfiehl mir einen Cocktail ohne Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" },
-    { label: "🧹 Reset", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" }
+    { label: "🥥 Ohne Kokos", text: "Empfiehl mir einen Cocktail ohne Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" }
   ];
   const homeSuggestions = [
     { label: "Mojito", text: "Wie mache ich einen Mojito?", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)" },
@@ -377,7 +392,6 @@ function App() {
     { label: "Mai Tai", text: "Zeig mir das Rezept für einen Mai Tai", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" },
     { label: "Caipirinha", text: "Wie mache ich eine Caipirinha?", color: "#84cc16", glow: "rgba(132, 204, 22, 0.3)" },
     { label: "Long Island Ice Tea", text: "Zeig mir das Rezept für einen Long Island Ice Tea", color: "#38bdf8", glow: "rgba(56, 189, 248, 0.3)" },
-    { label: "Zurücksetzen", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" },
   ];
   const randomSuggestion = mode === "home"
     ? { label: "🎲 Zufälliges Rezept entdecken", text: "Starte das Rezept-Roulette", color: "#10b981" }
@@ -385,7 +399,7 @@ function App() {
   const isRouletteRunning = rouletteResult && !rouletteResult.completed;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <div className={`app-shell ${viewMode === "mobile" ? "mobile-presentation" : ""}`}>
       {/* Header Bereich */}
       <div className="chat-header">
         <div className="chat-header-title">
@@ -423,6 +437,57 @@ function App() {
                 : ollamaConnected
                   ? "KI-Server (Ollama) verbunden"
                   : "KI-Server offline · Fallback aktiv"}
+          </div>
+          <div className="settings-control">
+            <button
+              type="button"
+              className={`settings-button ${settingsOpen ? "active" : ""}`}
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-expanded={settingsOpen}
+              aria-haspopup="menu"
+            >
+              <span aria-hidden="true">⚙</span>
+              <span>Einstellungen</span>
+            </button>
+            {settingsOpen && (
+              <div className="settings-menu" role="menu" aria-label="Ansicht auswählen">
+                <div className="settings-menu-title">Ansicht</div>
+                <button
+                  type="button"
+                  className={viewMode === "desktop" ? "selected" : ""}
+                  onClick={() => {
+                    setViewMode("desktop");
+                    setSettingsOpen(false);
+                  }}
+                  role="menuitemradio"
+                  aria-checked={viewMode === "desktop"}
+                >
+                  <span className="settings-option-icon">▰</span>
+                  <span>
+                    <strong>Desktop</strong>
+                    <small>Normale Präsentationsansicht</small>
+                  </span>
+                  <span className="settings-check">{viewMode === "desktop" ? "✓" : ""}</span>
+                </button>
+                <button
+                  type="button"
+                  className={viewMode === "mobile" ? "selected" : ""}
+                  onClick={() => {
+                    setViewMode("mobile");
+                    setSettingsOpen(false);
+                  }}
+                  role="menuitemradio"
+                  aria-checked={viewMode === "mobile"}
+                >
+                  <span className="settings-option-icon">▯</span>
+                  <span>
+                    <strong>Mobile Präsentation</strong>
+                    <small>Smartphone-Vorschau im Browser</small>
+                  </span>
+                  <span className="settings-check">{viewMode === "mobile" ? "✓" : ""}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -496,7 +561,7 @@ function App() {
                 );
               })}
             </div>
-            <div className="random-action-row">
+            <div className="primary-action-row">
               <button
                 type="button"
                 className="random-action-button"
@@ -506,6 +571,15 @@ function App() {
                 <span className="random-action-icon">🎲</span>
                 <span>{randomSuggestion.label.replace("🎲 ", "")}</span>
                 <span className="random-action-arrow">→</span>
+              </button>
+              <button
+                type="button"
+                className="reset-action-button"
+                onClick={handleReset}
+                disabled={isLoading}
+              >
+                <span className="reset-action-icon">🧹</span>
+                <span>Reset</span>
               </button>
             </div>
 
