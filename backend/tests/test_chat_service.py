@@ -256,6 +256,18 @@ class ChatServiceTest(unittest.TestCase):
         )
         self.assertEqual(criteria.geschmack, "fruchtig")
 
+    def test_recommendation_randomly_selects_three_from_all_matches(self):
+        criteria = CocktailSearchCriteria()
+        expected = [COCKTAILS[2], COCKTAILS[0]]
+        with patch.object(chat_service.random, "sample", return_value=expected) as sample:
+            selected = chat_service.select_recommendation_candidates(
+                criteria, COCKTAILS, limit=2
+            )
+
+        self.assertEqual(selected, expected)
+        self.assertEqual(len(sample.call_args.args[0]), len(COCKTAILS))
+        sample.assert_called_once()
+
     def test_local_criteria_fallback_extracts_exclusion(self):
         criteria = chat_service.fallback_search_criteria(
             "Etwas fruchtiges ohne Kokos", COCKTAILS

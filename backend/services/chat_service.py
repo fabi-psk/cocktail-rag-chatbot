@@ -1194,6 +1194,17 @@ def build_local_answer(criteria: CocktailSearchCriteria, matching_cocktails: lis
     return "\n".join(lines)
 
 
+def select_recommendation_candidates(
+    criteria: CocktailSearchCriteria,
+    cocktails: list[dict[str, Any]],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    matches = search_cocktails(criteria, cocktails, limit=len(cocktails))
+    if len(matches) <= limit:
+        return matches
+    return random.sample(matches, limit)
+
+
 def build_random_response(
     cocktails: list[dict[str, Any]],
     session_id: str | None,
@@ -1407,7 +1418,7 @@ async def build_chat_response(
         logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
         criteria = fallback_search_criteria(user_message, cocktails)
 
-    matching_cocktails = search_cocktails(criteria, cocktails, limit=3)
+    matching_cocktails = select_recommendation_candidates(criteria, cocktails)
 
     try:
         response = await generate_answer(user_message, matching_cocktails, history)
