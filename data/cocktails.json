@@ -19,6 +19,114 @@
     "beschreibung": "Brasilianischer Cocktail mit Cachaca, frischer Limette und braunem Zucker."
   },
   {
+    "name": "Caipirovka",
+    "preis": 7.0,
+    "spirituose": [
+      "Vodka"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "leicht säuerlich"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Limette",
+      "Rohrzucker",
+      "Limettensaft"
+    ],
+    "beschreibung": "Frische Caipi-Variante mit Vodka, Limette, Rohrzucker und Limettensaft."
+  },
+  {
+    "name": "Erdbeer-Caipi",
+    "preis": 7.5,
+    "spirituose": [
+      "Vodka"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "fruchtig",
+      "leicht säuerlich"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Limette",
+      "Brauner Zucker",
+      "Erdbeerpüree"
+    ],
+    "beschreibung": "Fruchtige Caipi-Variante mit Vodka, frischer Limette, braunem Zucker und Erdbeerpüree."
+  },
+  {
+    "name": "Wassermelonen-Caipi",
+    "preis": 7.5,
+    "spirituose": [
+      "Vodka"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "fruchtig",
+      "leicht säuerlich"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Wassermelonensirup",
+      "Limette",
+      "Rohrzucker",
+      "Limettensaft"
+    ],
+    "beschreibung": "Fruchtige Caipi-Variante mit Vodka, Wassermelonensirup, Limette, Rohrzucker und Limettensaft."
+  },
+  {
+    "name": "Caipimara",
+    "preis": 7.5,
+    "spirituose": [
+      "Tequila"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "fruchtig",
+      "leicht säuerlich",
+      "tropisch"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Tequila",
+      "Limette",
+      "Brauner Zucker",
+      "Grenadine",
+      "Maracujasaft"
+    ],
+    "beschreibung": "Tropisch-fruchtige Caipi-Variante mit Tequila, frischer Limette, braunem Zucker, Grenadine und Maracujasaft."
+  },
+  {
+    "name": "Aperolia",
+    "preis": 7.0,
+    "spirituose": [
+      "Aperol"
+    ],
+    "geschmack": [
+      "frisch",
+      "süß",
+      "leicht bitter",
+      "zitrusartig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Aperol",
+      "Orange",
+      "Limette",
+      "Rohrzucker",
+      "Limettensaft"
+    ],
+    "beschreibung": "Frische Aperol-Caipi-Variante mit Orange, Limette, Rohrzucker und Limettensaft."
+  },
+  {
     "name": "Mojito",
     "preis": 7.5,
     "spirituose": [
@@ -38,6 +146,79 @@
       "Soda"
     ],
     "beschreibung": "Klassischer kubanischer Cocktail mit Rum, Limette, braunem Zucker, frischer Minze und Soda."
+  },
+  {
+    "name": "Razz Mojito",
+    "preis": 7.5,
+    "spirituose": [
+      "Bacardi Razz"
+    ],
+    "geschmack": [
+      "frisch",
+      "minzig",
+      "süß",
+      "fruchtig",
+      "beerig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Bacardi Razz",
+      "Himbeeren",
+      "Frische Minze",
+      "Limette",
+      "Rohrzucker",
+      "Soda"
+    ],
+    "beschreibung": "Beerige Mojito-Variante mit Bacardi Razz, Himbeeren, frischer Minze, Limette, Rohrzucker und Soda."
+  },
+  {
+    "name": "Gin Mojito",
+    "preis": 7.5,
+    "spirituose": [
+      "Gin"
+    ],
+    "geschmack": [
+      "frisch",
+      "minzig",
+      "leicht süß",
+      "fruchtig",
+      "gurkig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Gin",
+      "Limette",
+      "Brauner Zucker",
+      "Minze",
+      "Soda",
+      "Apfelsaft",
+      "Gurke"
+    ],
+    "beschreibung": "Frische Mojito-Variante mit Gin, Limette, braunem Zucker, Minze, Soda, Apfelsaft und Gurke."
+  },
+  {
+    "name": "Green Mojito",
+    "preis": 7.5,
+    "spirituose": [
+      "Rum"
+    ],
+    "geschmack": [
+      "frisch",
+      "minzig",
+      "leicht süß",
+      "würzig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Rum",
+      "Limette",
+      "Brauner Zucker",
+      "Minze",
+      "Soda",
+      "Matchasirup",
+      "Ginger Beer"
+    ],
+    "beschreibung": "Frische Mojito-Variante mit Rum, Limette, braunem Zucker, Minze, Soda, Matchasirup und würzigem Ginger Beer."
   },
   {
     "name": "Baileys Colada",
@@ -553,6 +734,27 @@
     "beschreibung": "Klassisch-herber Cocktail mit Tequila, Crème de Cassis, frischem Limetten- und Zitronensaft, aufgegossen mit würzigem Ginger Beer."
   },
   {
+    "name": "Espresso Martini",
+    "preis": 8.5,
+    "spirituose": [
+      "Vodka",
+      "Kahlúa"
+    ],
+    "geschmack": [
+      "kaffeeartig",
+      "süß",
+      "stark"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Kahlúa",
+      "Espresso",
+      "Zuckersirup"
+    ],
+    "beschreibung": "Klassischer Kaffee-Cocktail mit Vodka, Kahlúa, frischem Espresso und Zuckersirup."
+  },
+  {
     "name": "Freshmaker",
     "preis": 7.5,
     "spirituose": [
@@ -695,6 +897,29 @@
       "Zitronensaft"
     ],
     "beschreibung": "Fruchtiger Klassiker mit dunklem Rum, Triple Sec, süßem Grenadinesirup, erfrischendem Zitronensaft sowie Ananas- und Orangensaft."
+  },
+  {
+    "name": "Pornstar Martini",
+    "preis": 8.5,
+    "spirituose": [
+      "Vodka"
+    ],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "sauer",
+      "tropisch",
+      "vanillig"
+    ],
+    "staerke": "mittel",
+    "zutaten": [
+      "Vodka",
+      "Vanillesirup",
+      "Maracujasirup",
+      "Zitronensaft",
+      "Maracujasaft"
+    ],
+    "beschreibung": "Fruchtig-tropischer Martini mit Vodka, Vanillesirup, Maracujasirup, Zitronensaft und Maracujasaft."
   },
   {
     "name": "Rotkäppchen ist Sauer",
@@ -1343,6 +1568,90 @@
       "Soda"
     ],
     "beschreibung": "Ein fruchtig-frischer alkoholfreier Cocktail mit Maracujasaft, Ananassaft, Zitronensaft und einem Schuss Grenadine, spritzig aufgegossen mit Soda."
+  },
+  {
+    "name": "Red Orange",
+    "preis": 5.9,
+    "spirituose": [],
+    "geschmack": [
+      "fruchtig",
+      "frisch",
+      "süß-sauer",
+      "beerig",
+      "zitrusartig"
+    ],
+    "staerke": "alkoholfrei",
+    "zutaten": [
+      "Limette",
+      "Rohrzucker",
+      "Erdbeerpüree",
+      "Orangensaft",
+      "Maracujasaft"
+    ],
+    "beschreibung": "Fruchtiger alkoholfreier Cocktail mit Limette, Rohrzucker, Erdbeerpüree, Orangensaft und Maracujasaft."
+  },
+  {
+    "name": "Chiaras Favourite",
+    "preis": 5.9,
+    "spirituose": [],
+    "geschmack": [
+      "fruchtig",
+      "frisch",
+      "süß",
+      "tropisch",
+      "kokosartig"
+    ],
+    "staerke": "alkoholfrei",
+    "zutaten": [
+      "Limette",
+      "Rohrzucker",
+      "Ananassaft",
+      "Orangensaft",
+      "Maracujasaft",
+      "Kokossirup"
+    ],
+    "beschreibung": "Tropisch-fruchtiger alkoholfreier Cocktail mit Limette, Rohrzucker, Ananas-, Orangen- und Maracujasaft sowie Kokossirup."
+  },
+  {
+    "name": "Virgin Green Mojito",
+    "preis": 5.9,
+    "spirituose": [],
+    "geschmack": [
+      "frisch",
+      "minzig",
+      "süß",
+      "würzig",
+      "spritzig"
+    ],
+    "staerke": "alkoholfrei",
+    "zutaten": [
+      "Matchasirup",
+      "Frische Minze",
+      "Rohrzucker",
+      "Ginger Ale",
+      "Ginger Beer"
+    ],
+    "beschreibung": "Frische alkoholfreie Mojito-Variante mit Matchasirup, frischer Minze, Rohrzucker, Ginger Ale und Ginger Beer."
+  },
+  {
+    "name": "Banana Kiss",
+    "preis": 5.9,
+    "spirituose": [],
+    "geschmack": [
+      "fruchtig",
+      "süß",
+      "bananig",
+      "beerig",
+      "tropisch"
+    ],
+    "staerke": "alkoholfrei",
+    "zutaten": [
+      "Bananensaft",
+      "Kirschsaft",
+      "Ananassaft",
+      "Zitronensaft"
+    ],
+    "beschreibung": "Fruchtiger alkoholfreier Cocktail mit Bananensaft, Kirschsaft, Ananassaft und Zitronensaft."
   },
   {
     "name": "Maracolada",
