@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import "./App.css";
-import { fetchBackendStatus, removePreference, resetChatSession, sendChatMessage } from "./services/api";
+import { fetchBackendStatus, resetChatSession, sendChatMessage } from "./services/api";
 
 const createSessionId = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -9,86 +9,11 @@ const createSessionId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
-const emptyPreferences = {
-  liked_ingredients: [],
-  disliked_ingredients: [],
-  spirits: [],
-  liked_flavors: [],
-  disliked_flavors: [],
-  strength: null,
-  alcoholic: null,
-};
-
 const welcomeMessage = (mode) => mode === "home"
   ? "Willkommen im **Zuhause-Modus**. Nenne mir einen konkreten Cocktail, dann suche ich das Rezept auf einer vertrauenswürdigen Webseite und zeige dir Zutaten, Zubereitung und Quelle."
   : "Hallo! Ich bin **CocktailGPT**, dein persönlicher Barkeeper-Assistent. 🍹\n\nWelchen Cocktail suchst du heute oder nach welchen Geschmäckern steht dir der Sinn? Beschreibe einfach deinen Wunsch (z.B. *'Ich möchte einen fruchtigen Cocktail mit Rum'* oder *'Ich mag Gin, aber keinen Wodka und kein Kokos'*). Ich schlage dir passende Rezepte vor!";
 
 const normalize = (value) => String(value || "").trim().toLowerCase();
-
-const includesValue = (values, value) =>
-  Array.isArray(values) && values.some((item) => normalize(item) === normalize(value));
-
-const formatStrength = (value) => {
-  if (value === "mild") return "mild";
-  if (value === "hoch") return "stark";
-  return value;
-};
-
-const buildPreferenceTags = (preferences) => {
-  const prefs = preferences || emptyPreferences;
-  const tags = [];
-  const hasCoconutExclusion = [
-    ...(prefs.disliked_ingredients || []),
-    ...(prefs.disliked_flavors || []),
-  ].some((value) => normalize(value).includes("kokos"));
-  prefs.spirits?.forEach((value) => tags.push({ field: "spirits", value, label: value, type: "positive" }));
-  prefs.liked_ingredients?.forEach((value) => tags.push({ field: "liked_ingredients", value, label: value, type: "positive" }));
-  prefs.liked_flavors?.forEach((value) => tags.push({ field: "liked_flavors", value, label: value, type: "positive" }));
-  if (hasCoconutExclusion) {
-    tags.push({ field: "disliked_ingredients", value: "Kokos", label: "Kein Kokos", type: "negative" });
-  }
-  prefs.disliked_ingredients
-    ?.filter((value) => !normalize(value).includes("kokos"))
-    .forEach((value) => tags.push({ field: "disliked_ingredients", value, label: `Kein ${value}`, type: "negative" }));
-  prefs.disliked_flavors
-    ?.filter((value) => !normalize(value).includes("kokos"))
-    .forEach((value) => tags.push({ field: "disliked_flavors", value, label: `Nicht ${value}`, type: "negative" }));
-  if (prefs.strength) tags.push({ field: "strength", value: prefs.strength, label: `Staerke: ${formatStrength(prefs.strength)}`, type: "neutral" });
-  if (prefs.alcoholic === false) tags.push({ field: "alcoholic", value: "false", label: "Alkoholfrei", type: "neutral" });
-  if (prefs.alcoholic === true) tags.push({ field: "alcoholic", value: "true", label: "Mit Alkohol", type: "neutral" });
-  return tags;
-};
-
-const cocktailTextValues = (cocktail) => [
-  cocktail.name,
-  cocktail.staerke,
-  cocktail.beschreibung,
-  ...(cocktail.spirituose || []),
-  ...(cocktail.geschmack || []),
-  ...(cocktail.zutaten || []),
-].map(normalize);
-
-const cocktailHasValue = (cocktail, value) =>
-  cocktailTextValues(cocktail).some((item) => item.includes(normalize(value)) || normalize(value).includes(item));
-
-const buildMatchReasons = (cocktail, preferences) => {
-  const prefs = preferences || emptyPreferences;
-  const reasons = [];
-  prefs.spirits?.forEach((value) => {
-    if (cocktailHasValue(cocktail, value)) reasons.push(`${value} entspricht deiner Vorliebe.`);
-  });
-  prefs.liked_flavors?.forEach((value) => {
-    if (cocktailHasValue(cocktail, value)) reasons.push(`${value} passt zu deinem Geschmack.`);
-  });
-  prefs.disliked_ingredients?.forEach((value) => {
-    if (!cocktailHasValue(cocktail, value)) reasons.push(`Kein ${value} enthalten.`);
-  });
-  prefs.disliked_flavors?.forEach((value) => {
-    if (!cocktailHasValue(cocktail, value)) reasons.push(`Nicht ${value}.`);
-  });
-  if (prefs.strength && cocktail.staerke) reasons.push(`Staerke: ${cocktail.staerke}.`);
-  return reasons.slice(0, 3);
-};
 
 const getMatchLabel = (index) => {
   if (index === 0) return "Passt sehr gut";
@@ -196,7 +121,6 @@ function App() {
   const [inputValue, setInputValue] = useState("");
   const [retrievedCocktails, setRetrievedCocktails] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [preferences, setPreferences] = useState(emptyPreferences);
   const [rouletteResult, setRouletteResult] = useState(null);
   const [expandedCocktails, setExpandedCocktails] = useState({});
   const [webRecipes, setWebRecipes] = useState([]);
@@ -235,7 +159,6 @@ function App() {
 
   const applyChatData = (data) => {
     setWebRecipes(data.web_recipes || []);
-    setPreferences(data.preferences || emptyPreferences);
     if (data.type === "random" && data.selected_cocktail) {
       rouletteRunRef.current += 1;
       setRouletteResult({
@@ -255,30 +178,6 @@ function App() {
     }
   };
 
-  const handleRemovePreference = async (tag) => {
-    if (isLoading) return;
-    setIsLoading(true);
-    try {
-      const data = await removePreference({
-        sessionId: sessionIdRef.current,
-        field: tag.field,
-        value: tag.value,
-      });
-      applyChatData(data);
-    } catch (error) {
-      console.error("Fehler beim Entfernen der Praeferenz:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "CocktailGPT konnte den Wunsch gerade nicht entfernen. Versuch es bitte noch einmal.",
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Funktion zum Zurücksetzen des Chats
   const handleReset = async () => {
     const oldSessionId = sessionIdRef.current;
@@ -289,7 +188,6 @@ function App() {
       },
     ]);
     setRetrievedCocktails([]);
-    setPreferences(emptyPreferences);
     setRouletteResult(null);
     setExpandedCocktails({});
     setWebRecipes([]);
@@ -310,7 +208,6 @@ function App() {
     setMessages([{ role: "assistant", content: welcomeMessage(nextMode) }]);
     setRetrievedCocktails([]);
     setWebRecipes([]);
-    setPreferences(emptyPreferences);
     setRouletteResult(null);
     setExpandedCocktails({});
     setInputValue("");
@@ -463,16 +360,15 @@ function App() {
   };
 
   const suggestions = [
-    { label: "🍓 Fruchtig", text: "Ich mag fruchtige Cocktails", color: "#ec4899", glow: "rgba(236, 72, 153, 0.3)", active: () => includesValue(preferences.liked_flavors, "fruchtig") },
-    { label: "☁️ Cremig", text: "Ich mag cremige Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "cremig") },
-    { label: "💪 Stark", text: "Ich möchte etwas Starkes", color: "#a855f7", glow: "rgba(168, 85, 247, 0.3)", active: () => ["stark", "hoch"].includes(preferences.strength) },
-    { label: "🚫 Alkoholfrei", text: "Ich suche einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)", active: () => preferences.alcoholic === false || preferences.strength === "alkoholfrei" },
-    { label: "🍋 Sauer", text: "Ich mag saure Cocktails", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)", active: () => includesValue(preferences.liked_flavors, "sauer") },
-    { label: "🥥 Ohne Kokos", text: "Ich möchte keinen Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)", active: () => (preferences.disliked_ingredients || []).some((value) => normalize(value).includes("kokos")) },
+    { label: "🍓 Fruchtig", text: "Empfiehl mir einen fruchtigen Cocktail", color: "#ec4899", glow: "rgba(236, 72, 153, 0.3)" },
+    { label: "☁️ Cremig", text: "Empfiehl mir einen cremigen Cocktail", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
+    { label: "💪 Stark", text: "Empfiehl mir einen starken Cocktail", color: "#a855f7", glow: "rgba(168, 85, 247, 0.3)" },
+    { label: "🚫 Alkoholfrei", text: "Empfiehl mir einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
+    { label: "🍋 Sauer", text: "Empfiehl mir einen sauren Cocktail", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
+    { label: "🥥 Ohne Kokos", text: "Empfiehl mir einen Cocktail ohne Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" },
     { label: "🎲 Zufällig", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)", random: true },
     { label: "🧹 Reset", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" }
   ];
-  const preferenceTags = buildPreferenceTags(preferences);
   const isRouletteRunning = rouletteResult && !rouletteResult.completed;
 
   return (
@@ -547,29 +443,6 @@ function App() {
 
           {/* Eingabebereich */}
           <div className="chat-input-area">
-            {mode === "menu" && <div className="preferences-strip">
-              <div className="preferences-title">Gemerkte Wünsche</div>
-              {preferenceTags.length > 0 ? (
-                <div className="preference-tags">
-                  {preferenceTags.map((tag) => (
-                    <button
-                      key={`${tag.field}-${tag.value}`}
-                      type="button"
-                      className={`preference-tag ${tag.type}`}
-                      onClick={() => handleRemovePreference(tag)}
-                      disabled={isLoading || isRouletteRunning}
-                      title={`${tag.label} entfernen`}
-                    >
-                      <span>{tag.label}</span>
-                      <span aria-hidden="true">×</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="preferences-empty">keine</div>
-              )}
-            </div>}
-
             {/* Quick Suggestions Pills */}
             <div className="suggestions-bar">
               {(mode === "home" ? [
@@ -578,11 +451,10 @@ function App() {
                 { label: "Moscow Mule", text: "Welche Zutaten brauche ich für einen Moscow Mule?", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
                 { label: "Zurücksetzen", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" },
               ] : suggestions).map((s, index) => {
-                const isActive = s.active?.() || false;
                 return (
                 <button
                   key={index}
-                  className={`suggestion-pill ${isActive ? "active" : ""}`}
+                  className="suggestion-pill"
                   onClick={() => {
                     if (s.text === "RESET") {
                       handleReset();
@@ -595,8 +467,8 @@ function App() {
                   disabled={(isLoading || isRouletteRunning) && s.text !== "RESET"}
                   style={{
                     color: s.color,
-                    borderColor: isActive ? s.color : `${s.color}35`,
-                    backgroundColor: isActive ? `${s.color}28` : `${s.color}12`,
+                    borderColor: `${s.color}35`,
+                    backgroundColor: `${s.color}12`,
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = s.color;
@@ -605,10 +477,10 @@ function App() {
                     e.currentTarget.style.backgroundColor = `${s.color}22`;
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = isActive ? s.color : `${s.color}35`;
+                    e.currentTarget.style.borderColor = `${s.color}35`;
                     e.currentTarget.style.boxShadow = 'none';
                     e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.backgroundColor = isActive ? `${s.color}28` : `${s.color}12`;
+                    e.currentTarget.style.backgroundColor = `${s.color}12`;
                   }}
                 >
                   {s.label}
@@ -710,11 +582,10 @@ function App() {
                 </div>
               )}
               <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "12px" }}>
-                Empfehlungen aus der Cocktailkarte passend zu den gemerkten Wünschen:
+                Ergebnisse aus der Cocktailkarte für deine aktuelle Anfrage:
               </div>
               {retrievedCocktails.map((cocktail, index) => {
                 const isExpanded = expandedCocktails[cocktail.name] || false;
-                const reasons = buildMatchReasons(cocktail, preferences);
                 const highlights = [
                   ...(cocktail.geschmack || []),
                   cocktail.staerke,
@@ -735,14 +606,6 @@ function App() {
                         <span key={`${cocktail.name}-${value}`}>{value}</span>
                       ))}
                     </div>
-                    {reasons.length > 0 && (
-                      <div className="match-reasons">
-                        <strong>Warum passt er?</strong>
-                        {reasons.map((reason) => (
-                          <div key={`${cocktail.name}-${reason}`}>{reason}</div>
-                        ))}
-                      </div>
-                    )}
                     <button
                       type="button"
                       className="recipe-toggle"

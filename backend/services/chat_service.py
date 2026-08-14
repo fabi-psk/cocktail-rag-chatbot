@@ -11,7 +11,6 @@ from models.cocktail import (
     CatalogContext,
     ChatIntent,
     ChatMessage,
-    CocktailPreferences,
     CocktailSearchCriteria,
     IntentAnalysis,
 )
@@ -260,24 +259,19 @@ def is_random_request(user_message: str) -> bool:
 
 def detect_intent(
     user_message: str,
-    current_preferences: CocktailPreferences,
-    updated_preferences: CocktailPreferences,
     cocktails: list[dict[str, Any]],
 ) -> ChatIntent:
     normalized = normalize_text(user_message).strip()
     words = set(normalized.split())
-
-    if any(phrase in normalized for phrase in {
-        "von vorne", "alles vergessen", "praeferenzen loeschen", "präferenzen löschen",
-        "auswahl loeschen", "auswahl löschen", "zuruecksetzen", "zurücksetzen", "neu anfangen",
-    }):
-        return "reset_preferences"
 
     if is_greeting_message(user_message):
         return "conversation"
 
     short_conversation_replies = {"ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok"}
     if normalized in short_conversation_replies:
+        return "conversation"
+
+    if normalized in {"ich mag cocktail", "ich mag cocktails", "cocktails mag ich"}:
         return "conversation"
 
     if is_random_request(user_message):
@@ -295,13 +289,10 @@ def detect_intent(
     if any(marker in normalized for marker in out_of_scope_markers):
         return "out_of_scope"
 
-    if updated_preferences != current_preferences:
-        return "preference_update"
-
     recommendation_markers = {
         "empfiehl", "empfehl", "such", "find", "zeig", "welcher cocktail", "welchen cocktail",
         "vorschlag", "ueberrasch", "überrasch", "zufall", "lust auf", "etwas anderes",
-        "ich moechte", "ich möchte", "ich haette gern", "ich hätte gern",
+        "ich moechte", "ich möchte", "ich haette gern", "ich hätte gern", "ich mag",
     }
     if any(marker in normalized for marker in recommendation_markers):
         return "recommendation"
@@ -322,7 +313,7 @@ async def analyze_intent_with_llm(
     catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
-    values = preference_values(cocktails)
+    values = catalog_values(cocktails)
     messages: list[dict[str, str]] = [{
         "role": "system",
         "content": (
@@ -332,17 +323,17 @@ async def analyze_intent_with_llm(
             "sondern beschreibst, welche Daten benoetigt werden. Erfinde keine Fakten. "
             "Gib ausschliesslich JSON mit genau diesen Feldern zurueck: intent, action, cocktail_name, attribute, "
             "value, context_mode, confidence, answer. Erlaubte Intents: conversation, recommendation, "
-            "random, preference_update, catalog_query, reset_preferences, out_of_scope, unknown. "
-            "Erlaubte actions: respond, recommend, random, update_preferences, check_availability, check_attribute, "
-            "list_catalog, explain_recommendation, reset, reject, clarify. "
+            "random, catalog_query, out_of_scope, unknown. "
+            "Erlaubte actions: respond, recommend, random, check_availability, check_attribute, "
+            "list_catalog, explain_recommendation, reject, clarify. "
             "Nutze respond nur fuer conversation. Bei catalog_query muss action check_availability, check_attribute, "
             "list_catalog oder explain_recommendation sein. Wenn sich die aktuelle Nachricht auf den im Zustand "
             "gespeicherten Cocktail bezieht und etwas ueber ihn wissen will, ist sie catalog_query und nicht conversation. "
             "attribute ist null oder availability, price, ingredients, flavor, strength, description, recipe. "
-            "context_mode ist new_query, previous_cocktail, previous_preferences oder unclear. "
+            "context_mode ist new_query, previous_cocktail, previous_search oder unclear. "
             "new_query bedeutet eine neue Suche. previous_cocktail gilt bei einem Bezug auf den zuletzt besprochenen "
             "Cocktail. Entscheide anhand der Bedeutung der gesamten aktuellen Nachricht, nicht anhand der letzten Antwort. "
-            "previous_preferences bedeutet, dass bisher gemerkte Wuensche weiter gelten sollen. "
+            "previous_search bedeutet, dass nur die unmittelbar vorherige Kartensuche fortgesetzt wird. "
             "Wenn der Bezug nicht sicher erkennbar ist, nutze unclear und action clarify. "
             "confidence ist eine Zahl von 0 bis 1. Nutze den Verlauf, um Pronomen wie 'ihn' aufzuloesen. "
             "Normalisiere einen erkannten Cocktailnamen auf einen Namen aus COCKTAILNAMEN_DER_KARTE. "
@@ -356,15 +347,15 @@ async def analyze_intent_with_llm(
             "das gewaehlte Datenfeld passend zur konkreten Frage semantisch aus. "
             "Eine allgemeine Aussage wie 'Ich mag Cocktails' ist conversation, keine recommendation. "
             "Begruessungen, Smalltalk und Antworten wie 'gut und dir?' sind conversation. "
-            "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist preference_update. "
-            "Bei conversation, reset_preferences, out_of_scope und unknown schreibst du in answer eine "
+            "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist eine einmalige recommendation; "
+            "sie wird nicht gespeichert. Bei conversation, out_of_scope und unknown schreibst du in answer eine "
             "kurze, grammatikalisch natuerliche deutsche Antwort. Bei einer Begruessung begruesst du kurz und fragst "
             "direkt nach Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Sonst reagierst "
             "du auf den bisherigen Verlauf und leitest mit einer passenden Rueckfrage zum Cocktail-Thema zurueck. "
             "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
             "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
             "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
-            "Bei recommendation, random, preference_update und catalog_query bleibt answer leer. "
+            "Bei recommendation, random und catalog_query bleibt answer leer. "
             "value ist immer null oder Text, niemals ein Boolean, Objekt oder Array. Pruefe vor der Ausgabe intern, "
             "dass alle acht Felder vorhanden sind und zum gewaehlten Intent passen. Bei Mehrdeutigkeit nutze action "
             "clarify, intent unknown und erklaere die Rueckfrage in answer.\n\n"
@@ -411,11 +402,11 @@ def sanitize_interpretation_payload(
         "new_search": "new_query",
         "previous": "previous_cocktail",
         "previous_query": "previous_cocktail",
-        "preferences": "previous_preferences",
+        "search": "previous_search",
     }
     context_mode = context_aliases.get(parsed.get("context_mode"), parsed.get("context_mode"))
     if context_mode not in {
-        "new_query", "previous_cocktail", "previous_preferences", "unclear",
+        "new_query", "previous_cocktail", "previous_search", "unclear",
     }:
         context_mode = "unclear"
 
@@ -496,7 +487,6 @@ def interpreted_catalog_message(analysis: IntentAnalysis, original_message: str)
 
 def interpretation_clarification_response(
     analysis: IntentAnalysis,
-    preferences: CocktailPreferences,
 ) -> dict[str, Any]:
     answer = analysis.answer.strip() or (
         "Ich bin mir nicht sicher, was ich prüfen soll. Nenne mir bitte den Cocktail und die gewünschte Information."
@@ -508,7 +498,6 @@ def interpretation_clarification_response(
         "answer": answer,
         "cocktails": [],
         "criteria": None,
-        "preferences": preferences.model_dump(),
     }
 
 
@@ -531,7 +520,7 @@ def execute_catalog_action(
         matches = find_cocktails_by_name(analysis.cocktail_name, cocktails)
         return matches[:10], None
 
-    if analysis.context_mode == "previous_preferences" and catalog_context.criteria:
+    if analysis.context_mode == "previous_search" and catalog_context.criteria:
         criteria = catalog_context.criteria
         shown_names = set(catalog_context.shown_names)
         matches = [
@@ -645,7 +634,7 @@ def intent_answer_is_usable(
     user_message: str = "",
     history: list[ChatMessage] | None = None,
 ) -> bool:
-    answer_intents = {"conversation", "reset_preferences", "out_of_scope", "unknown"}
+    answer_intents = {"conversation", "out_of_scope", "unknown"}
     if analysis.intent not in answer_intents:
         return True
     if not analysis.answer.strip():
@@ -720,7 +709,6 @@ async def generate_intent_answer(
 
 def basic_intent_response(
     intent: ChatIntent,
-    preferences: CocktailPreferences,
     generated_answer: str = "",
     user_message: str = "",
 ) -> dict[str, Any]:
@@ -731,10 +719,6 @@ def basic_intent_response(
     )
     messages = {
         "conversation": conversation_fallback,
-        "reset_preferences": (
-            "Ich habe deine bisherigen Vorlieben zurückgesetzt. Wir können mit einer neuen Auswahl starten: "
-            "Magst du es eher fruchtig, sauer, cremig oder stark?"
-        ),
         "out_of_scope": (
             "Dafür bin ich nicht zuständig. Ich bin dein Cocktail-Assistent und helfe dir gern bei "
             "Empfehlungen, Zutaten, Geschmack, Stärke oder Preisen."
@@ -752,14 +736,12 @@ def basic_intent_response(
         "answer": answer,
         "cocktails": [],
         "criteria": None,
-        "preferences": preferences.model_dump(),
     }
 
 
 def build_cocktail_detail_response(
     user_message: str,
     cocktails: list[dict[str, Any]],
-    preferences: CocktailPreferences,
 ) -> dict[str, Any]:
     name_matches = find_cocktails_by_name(user_message, cocktails)
     cocktail = name_matches[0] if name_matches else None
@@ -775,7 +757,6 @@ def build_cocktail_detail_response(
             "answer": answer,
             "cocktails": [],
             "criteria": None,
-            "preferences": preferences.model_dump(),
         }
 
     normalized = normalize_text(user_message)
@@ -797,7 +778,6 @@ def build_cocktail_detail_response(
             "answer": answer,
             "cocktails": [cocktail],
             "criteria": None,
-            "preferences": preferences.model_dump(),
         }
 
     details: list[str] = []
@@ -820,14 +800,12 @@ def build_cocktail_detail_response(
         "answer": answer,
         "cocktails": [cocktail],
         "criteria": None,
-        "preferences": preferences.model_dump(),
     }
 
 
 def build_catalog_query_response(
     user_message: str,
     cocktails: list[dict[str, Any]],
-    preferences: CocktailPreferences,
     catalog_context: CatalogContext | None = None,
 ) -> dict[str, Any]:
     catalog_context = catalog_context or CatalogContext()
@@ -863,7 +841,6 @@ def build_catalog_query_response(
                 "answer": answer,
                 "cocktails": [cocktail],
                 "criteria": None,
-                "preferences": preferences.model_dump(),
             }
 
     if (
@@ -878,11 +855,11 @@ def build_catalog_query_response(
                 user_message, cocktail_name, cocktails
             )
             return build_cocktail_detail_response(
-                resolved_message, cocktails, preferences
+                resolved_message, cocktails
             )
 
     if not is_catalog_query(user_message) and is_cocktail_detail_query(user_message, cocktails):
-        return build_cocktail_detail_response(user_message, cocktails, preferences)
+        return build_cocktail_detail_response(user_message, cocktails)
 
     more_request = is_more_catalog_request(user_message)
     criteria: CocktailSearchCriteria | None = None
@@ -936,7 +913,6 @@ def build_catalog_query_response(
         "answer": answer,
         "cocktails": matches,
         "criteria": criteria.model_dump() if criteria and has_search_criteria(criteria) else None,
-        "preferences": preferences.model_dump(),
     }
 
 
@@ -1064,7 +1040,7 @@ def has_search_criteria(criteria: CocktailSearchCriteria) -> bool:
     ])
 
 
-def preference_values(cocktails: list[dict[str, Any]]) -> dict[str, list[str]]:
+def catalog_values(cocktails: list[dict[str, Any]]) -> dict[str, list[str]]:
     return {
         "ingredients": unique_text_values(cocktails, "zutaten"),
         "spirits": unique_text_values(cocktails, "spirituose"),
@@ -1072,318 +1048,9 @@ def preference_values(cocktails: list[dict[str, Any]]) -> dict[str, list[str]]:
     }
 
 
-def canonical_values(values: list[str], allowed_values: list[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        canonical = canonical_value(value, allowed_values)
-        if canonical and canonical.lower() not in seen:
-            seen.add(canonical.lower())
-            result.append(canonical)
-    return result
-
-
-def remove_overlaps(positive: list[str], negative: list[str]) -> list[str]:
-    negative_normalized = {normalize_text(value) for value in negative}
-    return [value for value in positive if normalize_text(value) not in negative_normalized]
-
-
-def constrain_preferences_to_local_signal(
-    current_preferences: CocktailPreferences,
-    llm_preferences: CocktailPreferences,
-    local_preferences: CocktailPreferences,
-) -> CocktailPreferences:
-    updates: dict[str, Any] = {}
-    for field in [
-        "liked_ingredients",
-        "disliked_ingredients",
-        "spirits",
-        "liked_flavors",
-        "disliked_flavors",
-        "strength",
-        "alcoholic",
-    ]:
-        if getattr(local_preferences, field) != getattr(current_preferences, field):
-            updates[field] = getattr(local_preferences, field)
-        else:
-            updates[field] = getattr(current_preferences, field)
-
-    # Keep future optional fields, such as price preference, if the model defines them.
-    if hasattr(current_preferences, "price_preference"):
-        field = "price_preference"
-        if getattr(local_preferences, field) != getattr(current_preferences, field):
-            updates[field] = getattr(local_preferences, field)
-        else:
-            updates[field] = getattr(current_preferences, field)
-
-    return llm_preferences.model_copy(update=updates)
-
-
-def canonicalize_preferences(
-    preferences: CocktailPreferences,
-    user_message: str,
-    cocktails: list[dict[str, Any]],
-) -> CocktailPreferences:
-    values = preference_values(cocktails)
-    liked_ingredients = canonical_values(preferences.liked_ingredients, values["ingredients"])
-    disliked_ingredients = canonical_values(preferences.disliked_ingredients, values["ingredients"] + values["spirits"])
-    spirits = canonical_values(preferences.spirits, values["spirits"])
-    liked_flavors = canonical_values(preferences.liked_flavors, values["flavors"])
-    disliked_flavors = canonical_values(preferences.disliked_flavors, values["flavors"])
-
-    disliked_ingredients.extend(
-        item for item in infer_exclusions_from_message(user_message, cocktails)
-        if normalize_text(item) not in {normalize_text(value) for value in disliked_ingredients}
-    )
-
-    spirits = remove_overlaps(spirits, disliked_ingredients)
-    liked_ingredients = remove_overlaps(liked_ingredients, disliked_ingredients)
-    spirit_names = {normalize_text(value) for value in spirits}
-    liked_ingredients = [
-        value for value in liked_ingredients
-        if normalize_text(value) not in spirit_names
-    ]
-    liked_flavors = remove_overlaps(liked_flavors, disliked_flavors)
-
-    return CocktailPreferences(
-        liked_ingredients=liked_ingredients,
-        disliked_ingredients=disliked_ingredients,
-        spirits=spirits,
-        liked_flavors=liked_flavors,
-        disliked_flavors=disliked_flavors,
-        strength=preferences.strength,
-        alcoholic=preferences.alcoholic,
-    )
-
-
-def find_terms_after_exclusion_marker(user_message: str) -> set[str]:
-    words = normalize_text(user_message).split()
-    markers = {"ohne", "kein", "keine", "keinen", "nichts", "nicht"}
-    stop_words = {"und", "oder", "mit", "aber", "doch", "lieber"}
-    terms: set[str] = set()
-    for index, word in enumerate(words):
-        if word in markers:
-            for term in words[index + 1:]:
-                if term in stop_words:
-                    break
-                terms.add(term)
-    return terms
-
-
 def message_mentions_any(user_message: str, needles: set[str]) -> bool:
     normalized = normalize_text(user_message)
     return any(needle in normalized for needle in needles)
-
-
-def has_positive_preference_marker(user_message: str) -> bool:
-    return message_mentions_any(user_message, {
-        "ich mag", "ich liebe", "ich haette gerne", "ich hätte gerne", "gerne", "mit",
-        "basis", "auf basis", "bevorzuge", "lust auf",
-    })
-
-
-def explicitly_mentions_value(user_message: str, value: str) -> bool:
-    normalized_message = normalize_text(user_message)
-    normalized_value = normalize_text(value)
-    if not normalized_value:
-        return False
-    if re.search(rf"\b{re.escape(normalized_value)}\b", normalized_message):
-        return True
-    if " " in normalized_value:
-        return False
-
-    message_tokens = normalized_message.split()
-    inflection_suffixes = ("es", "en", "er", "em", "e", "n", "s")
-    regular_inflection = any(
-        token.startswith(normalized_value)
-        and token[len(normalized_value):] in inflection_suffixes
-        for token in message_tokens
-    )
-    if regular_inflection:
-        return True
-
-    # German drops the "e" in adjectives such as "sauer" -> "Saures".
-    if normalized_value.endswith("er"):
-        adjective_stem = normalized_value[:-2] + "r"
-        return any(
-            token.startswith(adjective_stem)
-            and token[len(adjective_stem):] in inflection_suffixes
-            for token in message_tokens
-        )
-    return False
-
-
-def local_update_preferences(
-    current_preferences: CocktailPreferences,
-    user_message: str,
-    cocktails: list[dict[str, Any]],
-) -> CocktailPreferences:
-    preferences = current_preferences.model_copy(deep=True)
-    values = preference_values(cocktails)
-    exclusion_terms = find_terms_after_exclusion_marker(user_message)
-    normalized_message = normalize_text(user_message)
-    strength_context = any(
-        word.startswith(("stark", "leicht", "mild", "kraeftig", "kraftig"))
-        for word in normalized_message.split()
-    )
-
-    def is_excluded(value: str) -> bool:
-        normalized_value = normalize_text(value)
-        return any(term_matches(term, value) or term in normalized_value for term in exclusion_terms)
-
-    for spirit in values["spirits"]:
-        if explicitly_mentions_value(user_message, spirit):
-            if is_excluded(spirit):
-                preferences.spirits = [value for value in preferences.spirits if normalize_text(value) != normalize_text(spirit)]
-                preferences.disliked_ingredients.append(spirit)
-            elif has_positive_preference_marker(user_message):
-                preferences.spirits.append(spirit)
-
-    for flavor in values["flavors"]:
-        normalized_flavor = normalize_text(flavor)
-        if strength_context and (
-            normalized_flavor == "stark"
-            or normalized_flavor.startswith("leicht ")
-            or normalized_flavor == "leicht"
-        ):
-            continue
-        if explicitly_mentions_value(user_message, flavor):
-            if is_excluded(flavor):
-                preferences.liked_flavors = [value for value in preferences.liked_flavors if normalize_text(value) != normalize_text(flavor)]
-                preferences.disliked_flavors.append(flavor)
-            else:
-                preferences.liked_flavors.append(flavor)
-
-    for ingredient in values["ingredients"]:
-        if explicitly_mentions_value(user_message, ingredient):
-            if is_excluded(ingredient):
-                preferences.liked_ingredients = [
-                    value for value in preferences.liked_ingredients if normalize_text(value) != normalize_text(ingredient)
-                ]
-                preferences.disliked_ingredients.append(ingredient)
-            elif has_positive_preference_marker(user_message):
-                preferences.liked_ingredients.append(ingredient)
-
-    if message_mentions_any(user_message, {"nicht so stark", "leicht", "leichtes", "mild", "milder"}):
-        preferences.strength = "mild"
-    elif message_mentions_any(user_message, {"stark", "starkes", "kraeftig", "kraftig"}):
-        preferences.strength = "stark"
-    elif "mittel" in normalize_text(user_message):
-        preferences.strength = "mittel"
-
-    if message_mentions_any(user_message, {"alkoholfrei", "ohne alkohol"}):
-        preferences.alcoholic = False
-
-    return canonicalize_preferences(preferences, user_message, cocktails)
-
-
-async def update_preferences_with_llm(
-    user_message: str,
-    current_preferences: CocktailPreferences,
-    cocktails: list[dict[str, Any]],
-) -> CocktailPreferences:
-    values = preference_values(cocktails)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Du aktualisierst Cocktail-Praeferenzen fuer genau eine Chat-Session. "
-                "Nutze die bisherigen Praeferenzen und die neue Nutzernachricht und gib den neuen vollstaendigen "
-                "Zustand als JSON-Objekt zurueck. Erlaubte Felder: liked_ingredients, disliked_ingredients, spirits, "
-                "liked_flavors, disliked_flavors, strength, alcoholic. "
-                "Uebernimm nur Praeferenzen, die der Nutzer in der neuen Nachricht ausdruecklich nennt. "
-                "Leite keine Zutaten, Spirituosen, Staerke oder Alkoholstatus aus passenden Cocktails ab. "
-                "Beispiel: 'Ich mag fruchtige Cocktails' setzt nur liked_flavors ['fruchtig'] und sonst nichts Neues. "
-                "Listen duerfen keine Duplikate enthalten. Wenn der Nutzer seine Meinung aendert, entferne widerspruechliche "
-                "positive Werte. Beispiel: 'doch keinen Gin' entfernt Gin aus spirits und setzt Gin in disliked_ingredients. "
-                "strength darf nur null, mild, mittel, stark, hoch oder alkoholfrei sein. "
-                "Nutze nur Werte, die zur Cocktailkarte passen.\n\n"
-                f"ERLAUBTE_SPIRITUOSEN: {json.dumps(values['spirits'], ensure_ascii=False)}\n"
-                f"ERLAUBTE_GESCHMAECKER: {json.dumps(values['flavors'], ensure_ascii=False)}\n"
-                f"ERLAUBTE_ZUTATEN: {json.dumps(values['ingredients'], ensure_ascii=False)}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"BISHERIGE_PRAEFERENZEN:\n{current_preferences.model_dump_json()}\n\n"
-                f"NEUE_NACHRICHT:\n{user_message}"
-            ),
-        },
-    ]
-    raw_response = await query_ollama(messages)
-    parsed = extract_json_object(raw_response)
-    try:
-        preferences = CocktailPreferences.model_validate(parsed)
-    except Exception as exc:
-        raise InvalidLLMOutputError("LLM-Praeferenzen konnten nicht validiert werden.") from exc
-    return canonicalize_preferences(preferences, user_message, cocktails)
-
-
-def preferences_to_search_criteria(preferences: CocktailPreferences) -> CocktailSearchCriteria:
-    strength = preferences.strength
-    criteria_strength = "mittel" if strength == "mild" else strength
-    if preferences.alcoholic is False:
-        criteria_strength = "alkoholfrei"
-
-    return CocktailSearchCriteria(
-        spirituose=preferences.spirits[0] if preferences.spirits else None,
-        geschmack=preferences.liked_flavors[0] if preferences.liked_flavors else None,
-        staerke=criteria_strength,
-        ausschluesse=preferences.disliked_ingredients + preferences.disliked_flavors,
-    )
-
-
-def should_ask_follow_up(preferences: CocktailPreferences) -> bool:
-    return not any([
-        preferences.liked_ingredients,
-        preferences.disliked_ingredients,
-        preferences.spirits,
-        preferences.liked_flavors,
-        preferences.disliked_flavors,
-        preferences.strength,
-        preferences.alcoholic is not None,
-    ])
-
-
-def build_local_follow_up() -> str:
-    return (
-        "Gerne. Magst du es eher fruchtig, sauer, cremig oder stark? "
-        "Oder gibt es eine Spirituose, die du besonders magst oder vermeiden moechtest?"
-    )
-
-
-async def generate_follow_up(
-    user_message: str,
-    preferences: CocktailPreferences,
-    history: list[ChatMessage] | None = None,
-) -> str:
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Du bist CocktailGPT. Es liegen noch zu wenige Cocktail-Praeferenzen fuer eine gute Empfehlung vor. "
-                "Stelle auf Deutsch eine oder zwei kurze Rueckfragen zu Spirituose, Geschmack, Staerke "
-                "oder Zutaten. Frage nicht nach irrelevanten Dingen."
-            ),
-        }
-    ]
-    if history:
-        for message in history[-4:]:
-            if message.role in {"user", "assistant"}:
-                messages.append({"role": message.role, "content": message.content})
-    messages.append({
-        "role": "user",
-        "content": (
-            f"Praeferenzen: {preferences.model_dump_json()}\n"
-            f"Aktuelle Nachricht: {user_message}"
-        ),
-    })
-    try:
-        return (await query_ollama(messages, response_format="")).strip()
-    except LLMError as exc:
-        logger.warning("LLM follow-up generation failed, using local follow-up: %s", exc)
-        return build_local_follow_up()
 
 
 def names_from_answer(answer: str, allowed_names: set[str]) -> set[str]:
@@ -1404,10 +1071,13 @@ async def extract_search_criteria(user_message: str) -> CocktailSearchCriteria:
                 "Du bekommst keinen Cocktailkatalog und suchst keine Cocktails. "
                 "Gib ausschliesslich ein JSON-Objekt mit genau diesen Feldern zurueck: "
                 "spirituose, geschmack, staerke, ausschluesse. "
-                "Setze unbekannte positive Felder auf null. ausschluesse ist immer eine Liste. "
+                "Extrahiere nur Angaben, die der Nutzer in dieser Nachricht ausdruecklich nennt. "
+                "Leite keine typischen Zutaten, Spirituosen, Rezepte oder Ausschluesse aus einem Geschmack ab. "
+                "Setze jedes nicht ausdruecklich genannte positive Feld auf null. ausschluesse enthaelt nur "
+                "ausdruecklich ausgeschlossene Angaben und ist sonst eine leere Liste. "
                 "staerke darf nur null, leicht, mittel, stark, hoch oder alkoholfrei sein. "
                 "Beispiele: 'starker Cocktail' -> staerke 'stark'; 'ohne Kokos' -> ausschluesse ['Kokos']; "
-                "'mit Rum' -> spirituose 'Rum'."
+                "'mit Rum' -> spirituose 'Rum'; 'saurer Cocktail' -> geschmack 'sauer', alle anderen Felder leer."
             ),
         },
         {"role": "user", "content": user_message},
@@ -1524,56 +1194,22 @@ def build_local_answer(criteria: CocktailSearchCriteria, matching_cocktails: lis
     return "\n".join(lines)
 
 
-def has_any_preferences(preferences: CocktailPreferences) -> bool:
-    return any([
-        preferences.liked_ingredients,
-        preferences.disliked_ingredients,
-        preferences.spirits,
-        preferences.liked_flavors,
-        preferences.disliked_flavors,
-        preferences.strength,
-        preferences.alcoholic is not None,
-    ])
-
-
-def positive_preference_matches(cocktail: dict[str, Any], preferences: CocktailPreferences) -> bool:
-    positive_groups = [
-        preferences.spirits,
-        preferences.liked_flavors,
-        preferences.liked_ingredients,
-    ]
-    for values in positive_groups:
-        if values and not any(cocktail_contains(cocktail, value) for value in values):
-            return False
-    return True
-
-
 def build_random_response(
-    preferences: CocktailPreferences,
     cocktails: list[dict[str, Any]],
     session_id: str | None,
     conversations: ConversationService,
 ) -> dict[str, Any]:
-    criteria = normalize_search_criteria(preferences_to_search_criteria(preferences), "", cocktails)
-    if has_any_preferences(preferences):
-        candidates = search_cocktails(criteria, cocktails, limit=1000)
-        candidates = [
-            cocktail for cocktail in candidates
-            if positive_preference_matches(cocktail, preferences)
-        ]
-    else:
-        candidates = [cocktail.copy() for cocktail in cocktails]
+    candidates = [cocktail.copy() for cocktail in cocktails]
 
     if not candidates:
-        answer = "Mit deinen aktuellen Ausschluessen habe ich leider nichts zum Auslosen gefunden."
+        answer = "Ich habe gerade keine Cocktails zum Auslosen gefunden."
         return {
             "type": "follow_up",
             "intent": "random",
             "message": answer,
             "answer": answer,
             "cocktails": [],
-            "criteria": criteria.model_dump(),
-            "preferences": preferences.model_dump(),
+            "criteria": None,
             "roulette_cocktails": [],
             "selected_cocktail": None,
         }
@@ -1599,13 +1235,7 @@ def build_random_response(
 
     selected_public = public_cocktail(selected)
     roulette_public = [public_cocktail(cocktail) for cocktail in roulette_cocktails]
-    if has_any_preferences(preferences):
-        answer = (
-            "Ich habe nur Cocktails beruecksichtigt, die zu deinen bisherigen Wuenschen passen. "
-            f"Das Cocktail-Roulette hat entschieden: {selected_public['name']}!"
-        )
-    else:
-        answer = f"Das Cocktail-Roulette hat entschieden: {selected_public['name']}!"
+    answer = f"Das Cocktail-Roulette hat entschieden: {selected_public['name']}!"
 
     return {
         "type": "random",
@@ -1613,8 +1243,7 @@ def build_random_response(
         "message": "Ich lose dir etwas aus!",
         "answer": answer,
         "cocktails": [selected_public],
-        "criteria": criteria.model_dump(),
-        "preferences": preferences.model_dump(),
+        "criteria": None,
         "roulette_cocktails": roulette_public,
         "selected_cocktail": selected_public,
     }
@@ -1641,17 +1270,14 @@ async def build_chat_response(
             "answer": message,
             "cocktails": [],
             "criteria": None,
-            "preferences": CocktailPreferences().model_dump(),
         }
 
-    current_preferences = conversations.get_preferences(session_id)
     catalog_context = conversations.get_catalog_context(session_id)
-    local_preferences = local_update_preferences(current_preferences, user_message, cocktails)
     detected_intent: ChatIntent | None = None
     generated_intent_answer = ""
     interpretation: IntentAnalysis | None = None
     if intent_routing_enabled():
-        local_intent = detect_intent(user_message, current_preferences, local_preferences, cocktails)
+        local_intent = detect_intent(user_message, cocktails)
         if (
             catalog_context.referenced_cocktail
             and is_previous_cocktail_detail_query(user_message, cocktails)
@@ -1682,13 +1308,7 @@ async def build_chat_response(
         if interpretation and (
             interpretation.action == "clarify" or interpretation.confidence < 0.55
         ):
-            return interpretation_clarification_response(interpretation, current_preferences)
-
-        if detected_intent == "reset_preferences":
-            conversations.reset_preferences(session_id)
-            return basic_intent_response(
-                detected_intent, CocktailPreferences(), generated_intent_answer, user_message
-            )
+            return interpretation_clarification_response(interpretation)
         if (
             detected_intent in {"conversation", "unknown"}
             and interpretation
@@ -1715,11 +1335,10 @@ async def build_chat_response(
                     "answer": answer,
                     "cocktails": referenced,
                     "criteria": None,
-                    "preferences": current_preferences.model_dump(),
                 }
         if detected_intent in {"conversation", "out_of_scope", "unknown"}:
             return basic_intent_response(
-                detected_intent, current_preferences, generated_intent_answer, user_message
+                detected_intent, generated_intent_answer, user_message
             )
         if detected_intent == "catalog_query":
             if interpretation:
@@ -1743,11 +1362,10 @@ async def build_chat_response(
                     "answer": answer,
                     "cocktails": matches,
                     "criteria": criteria.model_dump() if criteria else None,
-                    "preferences": current_preferences.model_dump(),
                 }
             else:
                 response = build_catalog_query_response(
-                    user_message, cocktails, current_preferences, catalog_context
+                    user_message, cocktails, catalog_context
                 )
                 criteria_payload = response.get("criteria")
                 criteria = (
@@ -1761,7 +1379,7 @@ async def build_chat_response(
                     criteria,
                     [cocktail["name"] for cocktail in response.get("cocktails", [])],
                     append=bool(
-                        interpretation.context_mode == "previous_preferences"
+                        interpretation.context_mode == "previous_search"
                         if interpretation else is_more_catalog_request(user_message)
                     ),
                 )
@@ -1778,53 +1396,17 @@ async def build_chat_response(
                 )
             return response
 
-    if intent_routing_enabled():
-        if interpretation:
-            try:
-                preferences = await update_preferences_with_llm(
-                    user_message, current_preferences, cocktails
-                )
-                preferences = constrain_preferences_to_local_signal(
-                    current_preferences, preferences, local_preferences
-                )
-            except (InvalidLLMOutputError, LLMError) as exc:
-                logger.warning("LLM preference interpretation failed, using local fallback: %s", exc)
-                preferences = local_preferences
-        else:
-            preferences = local_preferences
-    else:
-        try:
-            preferences = await update_preferences_with_llm(user_message, current_preferences, cocktails)
-        except InvalidLLMOutputError as exc:
-            logger.warning("LLM criteria validation failed, using local fallback: %s", exc)
-            preferences = local_preferences
-        except LLMError as exc:
-            logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
-            preferences = local_preferences
-
-    intent: ChatIntent | None = None
-    if intent_routing_enabled():
-        intent = detected_intent
-
-    conversations.update_preferences(session_id, preferences)
-
+    intent = detected_intent if intent_routing_enabled() else detect_intent(user_message, cocktails)
     if intent == "random":
-        return build_random_response(preferences, cocktails, session_id, conversations)
+        return build_random_response(cocktails, session_id, conversations)
 
-    if should_ask_follow_up(preferences):
-        answer = await generate_follow_up(user_message, preferences, history)
-        return {
-            "type": "follow_up",
-            "intent": intent,
-            "message": answer,
-            "answer": answer,
-            "cocktails": [],
-            "criteria": None,
-            "preferences": preferences.model_dump(),
-        }
+    try:
+        criteria = await extract_search_criteria(user_message)
+        criteria = normalize_search_criteria(criteria, user_message, cocktails)
+    except (InvalidLLMOutputError, LLMError) as exc:
+        logger.warning("LLM criteria extraction failed, using local fallback: %s", exc)
+        criteria = fallback_search_criteria(user_message, cocktails)
 
-    criteria = preferences_to_search_criteria(preferences)
-    criteria = normalize_search_criteria(criteria, "", cocktails)
     matching_cocktails = search_cocktails(criteria, cocktails, limit=3)
 
     try:
@@ -1836,51 +1418,5 @@ async def build_chat_response(
 
     response["type"] = "recommendation"
     response["intent"] = intent
-    response["preferences"] = preferences.model_dump()
     response["criteria"] = criteria.model_dump()
     return response
-
-
-async def build_session_recommendation_response(
-    session_id: str | None,
-    repository: CocktailRepository | None = None,
-    conversations: ConversationService | None = None,
-) -> dict[str, Any]:
-    repository = repository or CocktailRepository()
-    conversations = conversations or conversation_service
-
-    try:
-        cocktails = repository.list_all()
-    except CocktailRepositoryError as exc:
-        logger.error("Cocktail repository failed: %s", exc)
-        message = "Die Cocktail-Daten konnten gerade nicht geladen werden."
-        return {
-            "type": "follow_up",
-            "message": message,
-            "answer": message,
-            "cocktails": [],
-            "criteria": None,
-            "preferences": CocktailPreferences().model_dump(),
-        }
-
-    preferences = conversations.get_preferences(session_id)
-    if should_ask_follow_up(preferences):
-        return {
-            "type": "follow_up",
-            "message": "",
-            "answer": "",
-            "cocktails": [],
-            "criteria": None,
-            "preferences": preferences.model_dump(),
-        }
-
-    criteria = normalize_search_criteria(preferences_to_search_criteria(preferences), "", cocktails)
-    matching_cocktails = search_cocktails(criteria, cocktails, limit=3)
-    return {
-        "type": "recommendation",
-        "message": "",
-        "answer": "",
-        "cocktails": matching_cocktails,
-        "criteria": criteria.model_dump(),
-        "preferences": preferences.model_dump(),
-    }

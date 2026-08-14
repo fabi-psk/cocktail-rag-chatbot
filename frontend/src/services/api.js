@@ -41,10 +41,3 @@ export function resetChatSession(sessionId) {
     method: "DELETE",
   });
 }
-
-export function removePreference({ sessionId, field, value }) {
-  return request(`/chat/session/${sessionId}/preferences/remove`, {
-    method: "POST",
-    body: JSON.stringify({ field, value }),
-  });
-}

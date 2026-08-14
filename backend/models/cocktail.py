@@ -4,14 +4,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 StrengthValue = Literal["leicht", "mittel", "stark", "hoch", "alkoholfrei"]
-PreferenceStrengthValue = Literal["mild", "mittel", "stark", "hoch", "alkoholfrei"]
 ChatIntent = Literal[
     "conversation",
     "recommendation",
     "random",
-    "preference_update",
     "catalog_query",
-    "reset_preferences",
     "out_of_scope",
     "unknown",
 ]
@@ -19,12 +16,10 @@ InterpretationAction = Literal[
     "respond",
     "recommend",
     "random",
-    "update_preferences",
     "check_availability",
     "check_attribute",
     "list_catalog",
     "explain_recommendation",
-    "reset",
     "reject",
     "clarify",
 ]
@@ -40,7 +35,7 @@ CatalogAttribute = Literal[
 ContextMode = Literal[
     "new_query",
     "previous_cocktail",
-    "previous_preferences",
+    "previous_search",
     "unclear",
 ]
 
@@ -68,66 +63,6 @@ class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
     mode: Literal["menu", "home"] = "menu"
-
-
-class PreferenceRemoveRequest(BaseModel):
-    field: str
-    value: str | None = None
-
-
-class CocktailPreferences(BaseModel):
-    liked_ingredients: list[str] = Field(default_factory=list)
-    disliked_ingredients: list[str] = Field(default_factory=list)
-    spirits: list[str] = Field(default_factory=list)
-    liked_flavors: list[str] = Field(default_factory=list)
-    disliked_flavors: list[str] = Field(default_factory=list)
-    strength: PreferenceStrengthValue | None = None
-    alcoholic: bool | None = None
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator(
-        "liked_ingredients",
-        "disliked_ingredients",
-        "spirits",
-        "liked_flavors",
-        "disliked_flavors",
-        mode="before",
-    )
-    @classmethod
-    def normalize_string_lists(cls, value: Any) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, str):
-            value = [value]
-        if not isinstance(value, list):
-            raise ValueError("preference value must be a list of strings")
-
-        seen: set[str] = set()
-        normalized: list[str] = []
-        for item in value:
-            if not isinstance(item, str):
-                continue
-            stripped = item.strip()
-            key = stripped.lower()
-            if stripped and key not in seen:
-                seen.add(key)
-                normalized.append(stripped)
-        return normalized
-
-    @field_validator("strength", mode="before")
-    @classmethod
-    def normalize_preference_strength(cls, value: Any) -> Any:
-        if not isinstance(value, str):
-            return value
-        normalized = value.strip().lower()
-        if not normalized:
-            return None
-        if normalized in {"leicht", "mild", "nicht stark", "schwach"}:
-            return "mild"
-        if normalized in {"strong", "kraeftig", "kräftig"}:
-            return "stark"
-        return normalized
 
 
 class CocktailSearchCriteria(BaseModel):
@@ -193,7 +128,6 @@ class ChatResponse(BaseModel):
     answer: str
     cocktails: list[dict[str, Any]] = Field(default_factory=list)
     criteria: CocktailSearchCriteria | None = None
-    preferences: CocktailPreferences = Field(default_factory=CocktailPreferences)
     roulette_cocktails: list[dict[str, Any]] = Field(default_factory=list)
     selected_cocktail: dict[str, Any] | None = None
     web_recipes: list[dict[str, Any]] = Field(default_factory=list)

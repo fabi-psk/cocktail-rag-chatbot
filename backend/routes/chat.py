@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
-from models.cocktail import ChatRequest, PreferenceRemoveRequest
-from services.chat_service import build_chat_response, build_session_recommendation_response
+from models.cocktail import ChatRequest
+from services.chat_service import build_chat_response
 from services.conversation_service import conversation_service
 from services.home_recipe_service import build_home_recipe_response
 
@@ -25,16 +25,5 @@ async def chat_search_post(request: ChatRequest):
 
 @router.delete("/chat/session/{session_id}")
 def reset_chat_session(session_id: str):
-    conversation_service.reset_preferences(session_id)
+    conversation_service.reset_session(session_id)
     return {"status": "ok"}
-
-
-@router.get("/chat/session/{session_id}")
-async def get_chat_session(session_id: str):
-    return await build_session_recommendation_response(session_id)
-
-
-@router.post("/chat/session/{session_id}/preferences/remove")
-async def remove_chat_preference(session_id: str, request: PreferenceRemoveRequest):
-    conversation_service.remove_preference(session_id, request.field, request.value)
-    return await build_session_recommendation_response(session_id)
