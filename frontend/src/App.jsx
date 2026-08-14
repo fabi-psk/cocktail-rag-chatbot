@@ -366,9 +366,22 @@ function App() {
     { label: "🚫 Alkoholfrei", text: "Empfiehl mir einen alkoholfreien Cocktail", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
     { label: "🍋 Sauer", text: "Empfiehl mir einen sauren Cocktail", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
     { label: "🥥 Ohne Kokos", text: "Empfiehl mir einen Cocktail ohne Kokos", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" },
-    { label: "🎲 Zufällig", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)", random: true },
     { label: "🧹 Reset", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" }
   ];
+  const homeSuggestions = [
+    { label: "Mojito", text: "Wie mache ich einen Mojito?", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)" },
+    { label: "Margarita", text: "Zeig mir das Rezept für eine Margarita", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
+    { label: "Moscow Mule", text: "Welche Zutaten brauche ich für einen Moscow Mule?", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
+    { label: "Sex on the Beach", text: "Zeig mir das Rezept für Sex on the Beach", color: "#ec4899", glow: "rgba(236, 72, 153, 0.3)" },
+    { label: "Pina Colada", text: "Wie mache ich eine Pina Colada?", color: "#f59e0b", glow: "rgba(245, 158, 11, 0.3)" },
+    { label: "Mai Tai", text: "Zeig mir das Rezept für einen Mai Tai", color: "#f97316", glow: "rgba(249, 115, 22, 0.3)" },
+    { label: "Caipirinha", text: "Wie mache ich eine Caipirinha?", color: "#84cc16", glow: "rgba(132, 204, 22, 0.3)" },
+    { label: "Long Island Ice Tea", text: "Zeig mir das Rezept für einen Long Island Ice Tea", color: "#38bdf8", glow: "rgba(56, 189, 248, 0.3)" },
+    { label: "Zurücksetzen", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" },
+  ];
+  const randomSuggestion = mode === "home"
+    ? { label: "🎲 Zufälliges Rezept entdecken", text: "Starte das Rezept-Roulette", color: "#10b981" }
+    : { label: "🎲 Zufälligen Cocktail auslosen", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981" };
   const isRouletteRunning = rouletteResult && !rouletteResult.completed;
 
   return (
@@ -445,12 +458,7 @@ function App() {
           <div className="chat-input-area">
             {/* Quick Suggestions Pills */}
             <div className="suggestions-bar">
-              {(mode === "home" ? [
-                { label: "Mojito", text: "Wie mache ich einen Mojito?", color: "#10b981", glow: "rgba(16, 185, 129, 0.3)" },
-                { label: "Margarita", text: "Zeig mir das Rezept für eine Margarita", color: "#eab308", glow: "rgba(234, 179, 8, 0.3)" },
-                { label: "Moscow Mule", text: "Welche Zutaten brauche ich für einen Moscow Mule?", color: "#06b6d4", glow: "rgba(6, 182, 212, 0.3)" },
-                { label: "Zurücksetzen", text: "RESET", color: "#ef4444", glow: "rgba(239, 68, 68, 0.3)" },
-              ] : suggestions).map((s, index) => {
+              {(mode === "home" ? homeSuggestions : suggestions).map((s, index) => {
                 return (
                 <button
                   key={index}
@@ -487,6 +495,18 @@ function App() {
                 </button>
                 );
               })}
+            </div>
+            <div className="random-action-row">
+              <button
+                type="button"
+                className="random-action-button"
+                onClick={() => handleSend(randomSuggestion.text)}
+                disabled={isLoading || isRouletteRunning}
+              >
+                <span className="random-action-icon">🎲</span>
+                <span>{randomSuggestion.label.replace("🎲 ", "")}</span>
+                <span className="random-action-arrow">→</span>
+              </button>
             </div>
 
             {/* Formular zum Absenden */}
@@ -525,7 +545,17 @@ function App() {
             {mode === "home" ? ` Web-Rezept (${webRecipes.length})` : ` Rezeptekatalog (${retrievedCocktails.length})`}
           </h2>
           
-          {mode === "home" ? (
+          {rouletteResult && !rouletteResult.completed ? (
+            <CocktailRoulette
+              key={rouletteResult.id}
+              cocktails={rouletteResult.rouletteCocktails}
+              selectedCocktail={rouletteResult.selectedCocktail}
+              onComplete={() => {
+                setRetrievedCocktails([rouletteResult.selectedCocktail]);
+                setRouletteResult((prev) => prev ? { ...prev, completed: true } : prev);
+              }}
+            />
+          ) : mode === "home" ? (
             webRecipes.length > 0 ? (
               <div className="web-recipe-list">
                 {webRecipes.map((recipe) => (
@@ -563,16 +593,6 @@ function App() {
                 <p style={{ fontSize: "12px" }}>Das Rezept stammt von Cocktaildatenbank.de und wird von der LLM übersichtlich in eigenen Worten wiedergegeben.</p>
               </div>
             )
-          ) : rouletteResult && !rouletteResult.completed ? (
-            <CocktailRoulette
-              key={rouletteResult.id}
-              cocktails={rouletteResult.rouletteCocktails}
-              selectedCocktail={rouletteResult.selectedCocktail}
-              onComplete={() => {
-                setRetrievedCocktails([rouletteResult.selectedCocktail]);
-                setRouletteResult((prev) => prev ? { ...prev, completed: true } : prev);
-              }}
-            />
           ) : retrievedCocktails.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {rouletteResult?.completed && (

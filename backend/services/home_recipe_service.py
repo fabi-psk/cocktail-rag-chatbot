@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -16,6 +17,9 @@ from models.cocktail import ChatMessage
 COCKTAIL_DB_BASE_URL = "https://www.cocktaildatenbank.de"
 COCKTAIL_DB_RECIPE_PATH = "/cocktail-rezepte/"
 logger = logging.getLogger("cocktail-rag")
+HOME_RANDOM_MARKERS = {
+    "zufallig", "zufaellig", "zufäll", "random", "roulette", "uberrasch", "überrasch",
+}
 
 
 def normalize_recipe_name(name: str) -> str:
@@ -83,6 +87,17 @@ def find_recipe_path(index_html: str, cocktail_name: str) -> str | None:
     if ranked and ranked[-1][0] >= 0.88:
         return ranked[-1][1]
     return None
+
+
+def unique_recipe_links(index_html: str) -> list[tuple[str, str]]:
+    parser = CocktailLinkParser()
+    parser.feed(index_html)
+    by_name: dict[str, tuple[str, str]] = {}
+    for name, path in parser.links:
+        normalized = normalize_recipe_name(name)
+        if normalized and normalized not in by_name:
+            by_name[normalized] = (name, path)
+    return list(by_name.values())
 
 
 class CocktailDatabaseRecipeParser(HTMLParser):
@@ -226,6 +241,53 @@ async def fetch_cocktail_database_recipe(cocktail_name: str) -> dict[str, Any] |
         return None
 
 
+async def fetch_random_cocktail_database_recipe(
+    candidate_count: int = 8,
+) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    overview_url = urljoin(COCKTAIL_DB_BASE_URL, COCKTAIL_DB_RECIPE_PATH)
+    headers = {
+        "User-Agent": "CocktailGPT educational recipe prototype/1.0",
+        "Accept-Language": "de-DE,de;q=0.9",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, headers=headers) as client:
+            overview_response = await client.get(overview_url)
+            overview_response.raise_for_status()
+            available = unique_recipe_links(overview_response.text)
+            if not available:
+                return None
+            selected_links = random.sample(
+                available, min(candidate_count, len(available))
+            )
+            selected_name, selected_path = random.choice(selected_links)
+            source_url = urljoin(COCKTAIL_DB_BASE_URL, selected_path)
+            recipe_response = await client.get(source_url)
+            recipe_response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise LLMError("Die Rezeptquelle ist gerade nicht erreichbar.") from exc
+
+    try:
+        recipe = parse_cocktail_database_recipe(recipe_response.text, source_url)
+    except ValueError:
+        return None
+
+    candidates = [
+        {
+            "name": name,
+            "geschmack": [],
+            "staerke": "Web-Rezept",
+        }
+        for name, _ in selected_links
+    ]
+    if recipe["name"] != selected_name:
+        selected_name = recipe["name"]
+    for candidate in candidates:
+        if normalize_recipe_name(candidate["name"]) == normalize_recipe_name(selected_name):
+            candidate["name"] = recipe["name"]
+            break
+    return recipe, candidates
+
+
 def validate_rewritten_recipe(
     payload: dict[str, Any],
     source_recipe: dict[str, Any],
@@ -351,10 +413,75 @@ async def rewrite_recipe_with_llm(recipe: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_home_random_request(user_message: str) -> bool:
+    normalized = normalize_recipe_name(user_message)
+    return any(marker in normalized for marker in HOME_RANDOM_MARKERS)
+
+
+async def build_home_random_response() -> dict[str, Any]:
+    try:
+        result = await fetch_random_cocktail_database_recipe(candidate_count=8)
+    except LLMError as exc:
+        answer = str(exc)
+        return {
+            "type": "follow_up",
+            "intent": "random",
+            "message": answer,
+            "answer": answer,
+            "cocktails": [],
+            "web_recipes": [],
+            "criteria": None,
+        }
+
+    if not result:
+        answer = "Ich konnte gerade kein zufälliges Rezept laden."
+        return {
+            "type": "follow_up",
+            "intent": "random",
+            "message": answer,
+            "answer": answer,
+            "cocktails": [],
+            "web_recipes": [],
+            "criteria": None,
+        }
+
+    recipe, candidates = result
+    try:
+        rewritten_recipe = await rewrite_recipe_with_llm(recipe)
+    except (LLMError, InvalidLLMOutputError) as exc:
+        logger.warning("Recipe rewrite failed, using extracted source text: %s", exc)
+        rewritten_recipe = recipe
+
+    selected_cocktail = next(
+        (
+            candidate
+            for candidate in candidates
+            if normalize_recipe_name(candidate["name"])
+            == normalize_recipe_name(rewritten_recipe["name"])
+        ),
+        {"name": rewritten_recipe["name"], "geschmack": [], "staerke": "Web-Rezept"},
+    )
+    answer = f"Das Rezept-Roulette hat entschieden: {rewritten_recipe['name']}."
+    return {
+        "type": "random",
+        "intent": "random",
+        "message": answer,
+        "answer": answer,
+        "cocktails": [],
+        "web_recipes": [rewritten_recipe],
+        "criteria": None,
+        "roulette_cocktails": candidates,
+        "selected_cocktail": selected_cocktail,
+    }
+
+
 async def build_home_recipe_response(
     user_message: str,
     history: list[ChatMessage] | None = None,
 ) -> dict[str, Any]:
+    if is_home_random_request(user_message):
+        return await build_home_random_response()
+
     try:
         cocktail_name = await extract_requested_cocktail(user_message, history)
     except (LLMError, InvalidLLMOutputError):

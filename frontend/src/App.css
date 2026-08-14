@@ -359,6 +359,60 @@ body {
   transform: scale(1.03);
 }
 
+.random-action-row {
+  display: flex;
+  margin: 2px 0 14px;
+}
+
+.random-action-button {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid rgba(16, 185, 129, 0.58);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 12% 50%, rgba(52, 211, 153, 0.22), transparent 30%),
+    linear-gradient(135deg, rgba(6, 78, 59, 0.72), rgba(15, 118, 110, 0.34));
+  color: #d1fae5;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(5, 150, 105, 0.16);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.random-action-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #6ee7b7;
+  box-shadow: 0 14px 30px rgba(16, 185, 129, 0.28);
+}
+
+.random-action-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.random-action-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(167, 243, 208, 0.14);
+  font-size: 18px;
+}
+
+.random-action-arrow {
+  color: #6ee7b7;
+  font-size: 20px;
+}
+
 /* Cocktail list styling in panel */
 .panel-title {
   font-size: 18px;

@@ -155,6 +155,48 @@ class HomeRecipeServiceTest(unittest.TestCase):
             )
         )
 
+    def test_home_random_response_uses_eight_candidates_and_recipe(self):
+        recipe = home_recipe_service.parse_cocktail_database_recipe(
+            COCKTAIL_DB_HTML,
+            "https://www.cocktaildatenbank.de/cocktail-rezepte/140-mojito",
+        )
+        candidates = [
+            {"name": f"Cocktail {index}", "geschmack": [], "staerke": "Web-Rezept"}
+            for index in range(7)
+        ] + [{"name": "Mojito", "geschmack": [], "staerke": "Web-Rezept"}]
+
+        async def random_recipe(*args, **kwargs):
+            return recipe, candidates
+
+        async def rewritten_recipe(source_recipe):
+            return source_recipe
+
+        with (
+            patch.object(
+                home_recipe_service,
+                "fetch_random_cocktail_database_recipe",
+                random_recipe,
+            ),
+            patch.object(home_recipe_service, "rewrite_recipe_with_llm", rewritten_recipe),
+        ):
+            response = asyncio.run(home_recipe_service.build_home_random_response())
+
+        self.assertEqual(response["type"], "random")
+        self.assertEqual(len(response["roulette_cocktails"]), 8)
+        self.assertEqual(response["selected_cocktail"]["name"], "Mojito")
+        self.assertEqual(response["web_recipes"][0]["name"], "Mojito")
+
+    def test_home_random_request_is_detected_before_name_extraction(self):
+        self.assertTrue(
+            home_recipe_service.is_home_random_request("Starte das Rezept-Roulette")
+        )
+        self.assertTrue(
+            home_recipe_service.is_home_random_request("Überrasch mich")
+        )
+        self.assertFalse(
+            home_recipe_service.is_home_random_request("Zeig mir einen Mojito")
+        )
+
     def test_missing_source_recipe_does_not_invent_ingredients(self):
         async def cocktail_name(*args, **kwargs):
             return "Fantasy Drink"
