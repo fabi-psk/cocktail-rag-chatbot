@@ -58,18 +58,66 @@ class HomeRecipeServiceTest(unittest.TestCase):
         async def fetched_recipe(*args, **kwargs):
             return recipe
 
+        async def localized_recipe(source_recipe):
+            return {
+                **source_recipe,
+                "ingredients": [
+                    "45 ml weißer kubanischer Rum",
+                    "20 ml frischer Limettensaft",
+                    "6 Minzzweige",
+                    "2 TL weißer Rohrzucker",
+                    "Sodawasser",
+                ],
+                "instructions": [
+                    "Minze mit Zucker und Limettensaft vermengen.",
+                    "Rum dazugießen und mit Sodawasser auffüllen.",
+                ],
+                "garnish": ["Mit Minze und Limette garnieren."],
+            }
+
         with patch.object(home_recipe_service, "extract_requested_cocktail", cocktail_name):
             with patch.object(home_recipe_service, "fetch_iba_recipe", fetched_recipe):
-                response = asyncio.run(
-                    home_recipe_service.build_home_recipe_response(
-                        "Wie mache ich einen Mojito?"
+                with patch.object(home_recipe_service, "localize_recipe_with_llm", localized_recipe):
+                    response = asyncio.run(
+                        home_recipe_service.build_home_recipe_response(
+                            "Wie mache ich einen Mojito?"
+                        )
                     )
-                )
 
         self.assertEqual(response["intent"], "catalog_query")
         self.assertEqual(response["web_recipes"][0]["name"], "Mojito")
-        self.assertIn("45 ml White Cuban Ron", response["answer"])
+        self.assertIn("45 ml weißer kubanischer Rum", response["answer"])
+        self.assertIn("Rum dazugießen", response["answer"])
         self.assertIn("https://iba-world.com/iba-cocktail/mojito/", response["answer"])
+
+    def test_llm_localization_keeps_recipe_structure(self):
+        recipe = home_recipe_service.parse_iba_recipe(
+            IBA_HTML, "https://iba-world.com/iba-cocktail/mojito/"
+        )
+
+        async def fake_query(*args, **kwargs):
+            return """{
+                "ingredients": [
+                    "45 ml weißer kubanischer Rum",
+                    "20 ml frischer Limettensaft",
+                    "6 Minzzweige",
+                    "2 TL weißer Rohrzucker",
+                    "Sodawasser"
+                ],
+                "instructions": [
+                    "Minze mit Zucker und Limettensaft vermengen.",
+                    "Rum dazugießen und mit Sodawasser auffüllen."
+                ],
+                "garnish": ["Mit Minze und Limette garnieren."]
+            }"""
+
+        with patch.object(home_recipe_service, "query_ollama", fake_query):
+            localized = asyncio.run(home_recipe_service.localize_recipe_with_llm(recipe))
+
+        self.assertEqual(localized["name"], "Mojito")
+        self.assertEqual(len(localized["ingredients"]), len(recipe["ingredients"]))
+        self.assertEqual(localized["source_url"], recipe["source_url"])
+        self.assertIn("auffüllen", localized["instructions"][1])
 
     def test_missing_source_recipe_does_not_invent_ingredients(self):
         async def cocktail_name(*args, **kwargs):
