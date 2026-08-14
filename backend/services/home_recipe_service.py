@@ -226,22 +226,6 @@ async def fetch_cocktail_database_recipe(cocktail_name: str) -> dict[str, Any] |
         return None
 
 
-def format_home_recipe_answer(recipe: dict[str, Any]) -> str:
-    ingredients = "\n".join(f"- {item}" for item in recipe["ingredients"])
-    instructions = "\n".join(
-        f"{index}. {step}" for index, step in enumerate(recipe["instructions"], start=1)
-    )
-    garnish = ""
-    if recipe.get("garnish"):
-        garnish = "\n\n**Garnitur**\n" + " ".join(recipe["garnish"])
-    return (
-        f"**{recipe['name']} für zuhause**\n\n"
-        f"**Zutaten**\n{ingredients}\n\n"
-        f"**Zubereitung**\n{instructions}{garnish}\n\n"
-        f"Quelle: {recipe['source_name']} – {recipe['source_url']}"
-    )
-
-
 def validate_rewritten_recipe(
     payload: dict[str, Any],
     source_recipe: dict[str, Any],
@@ -420,7 +404,7 @@ async def build_home_recipe_response(
         logger.warning("Recipe localization failed, using extracted source text: %s", exc)
         localized_recipe = recipe
 
-    answer = format_home_recipe_answer(localized_recipe)
+    answer = f"Hier ist das Rezept für {localized_recipe['name']}."
     return {
         "type": "message",
         "intent": "catalog_query",

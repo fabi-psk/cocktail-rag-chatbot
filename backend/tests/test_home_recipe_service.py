@@ -110,9 +110,8 @@ class HomeRecipeServiceTest(unittest.TestCase):
 
         self.assertEqual(response["intent"], "catalog_query")
         self.assertEqual(response["web_recipes"][0]["name"], "Mojito")
-        self.assertIn("2 TL Rohrzucker", response["answer"])
-        self.assertIn("Limette vierteln", response["answer"])
-        self.assertIn("cocktaildatenbank.de/cocktail-rezepte/140-mojito", response["answer"])
+        self.assertEqual(response["answer"], "Hier ist das Rezept für Mojito.")
+        self.assertNotIn("Rohrzucker", response["answer"])
 
     def test_llm_rewrite_keeps_recipe_structure_and_source(self):
         recipe = home_recipe_service.parse_cocktail_database_recipe(
