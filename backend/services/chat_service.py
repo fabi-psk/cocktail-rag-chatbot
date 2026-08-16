@@ -284,7 +284,9 @@ def detect_intent(
         return "catalog_query"
     out_of_scope_markers = {
         "wetter", "fussball", "fußball", "aktien", "programmieren", "python", "politik",
-        "pizza", "hotel", "flug", "nachrichten", "hausaufgabe",
+        "pizza", "hotel", "flug", "nachrichten", "hausaufgabe", "beziehung",
+        "liebeskummer", "trennung", "partnerin", "partner", "gesundheit", "arzt",
+        "anwalt", "rechtsberatung", "finanzberatung",
     }
     if any(marker in normalized for marker in out_of_scope_markers):
         return "out_of_scope"
@@ -346,15 +348,21 @@ async def analyze_intent_with_llm(
             "fuer offene oder subjektive Fragen zum Charakter eines Cocktails. Die spaetere Antwort-LLM wertet "
             "das gewaehlte Datenfeld passend zur konkreten Frage semantisch aus. "
             "Eine allgemeine Aussage wie 'Ich mag Cocktails' ist conversation, keine recommendation. "
-            "Begruessungen, Smalltalk und Antworten wie 'gut und dir?' sind conversation. "
+            "Begruessungen, rein soziale Hoeflichkeit und kurze Antworten wie 'gut und dir?' sind conversation. "
+            "Substantielle Fragen oder Bitten um Rat ausserhalb von Cocktails sind niemals conversation, sondern "
+            "out_of_scope. Dazu gehoeren insbesondere persoenliche Probleme, Beziehungen, Liebe, Familie, psychische "
+            "oder koerperliche Gesundheit, Recht, Finanzen, Politik, Schule, Beruf und allgemeine Wissensfragen. "
             "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist eine einmalige recommendation; "
             "sie wird nicht gespeichert. Bei conversation, out_of_scope und unknown schreibst du in answer eine "
             "kurze, grammatikalisch natuerliche deutsche Antwort. Bei einer Begruessung begruesst du kurz und fragst "
             "direkt nach Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Sonst reagierst "
             "du auf den bisherigen Verlauf und leitest mit einer passenden Rueckfrage zum Cocktail-Thema zurueck. "
             "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
-            "out_of_scope erklaerst du freundlich deine Rolle. Duze den Nutzer immer, reagiere direkt auf den Inhalt "
-            "und vermeide unpassende Floskeln oder Wuensche wie 'Viel Spass'. "
+            "out_of_scope beantwortest du die fachfremde Frage inhaltlich nicht und gibst keinerlei Tipps, Analyse, "
+            "Bewertung oder Handlungsempfehlung dazu. Antworte stattdessen in hoechstens zwei kurzen Saetzen: Grenze "
+            "freundlich deine Rolle als Cocktail-Assistent ab und stelle genau eine konkrete Uebergangsfrage zu "
+            "Cocktailwuenschen, Geschmack, Zutaten oder einem Rezept. Duze den Nutzer immer und vermeide unpassende "
+            "Floskeln oder Wuensche wie 'Viel Spass'. "
             "Bei recommendation, random und catalog_query bleibt answer leer. "
             "value ist immer null oder Text, niemals ein Boolean, Objekt oder Array. Pruefe vor der Ausgabe intern, "
             "dass alle acht Felder vorhanden sind und zum gewaehlten Intent passen. Bei Mehrdeutigkeit nutze action "
@@ -653,6 +661,15 @@ def intent_answer_is_usable(
     ):
         return False
 
+    if analysis.intent == "out_of_scope":
+        normalized_answer = normalize_text(analysis.answer)
+        has_cocktail_redirect = "?" in analysis.answer and any(
+            term in normalized_answer
+            for term in {"cocktail", "geschmack", "zutat", "rezept", "alkoholfrei"}
+        )
+        if not has_cocktail_redirect or len(analysis.answer) > 320:
+            return False
+
     if history:
         previous_answers = [message.content for message in history if message.role == "assistant"]
         if previous_answers:
@@ -689,7 +706,10 @@ async def generate_intent_answer(
             "Stelle aus der geprueften Cocktailkarte erzeugt. "
             "Wenn bereits ein Verlauf existiert, begruesse nicht erneut. Du hilfst dem Nutzer bei der Auswahl und "
             "forderst den Nutzer niemals auf, dir bei der Auswahl zu helfen. "
-            "Bei out_of_scope erklaerst du knapp, wobei ein Cocktail-Assistent helfen kann. Bei unknown fragst du "
+            "Bei out_of_scope beantwortest du die fachfremde Frage nicht, auch nicht teilweise. Gib keine Tipps, "
+            "Analyse, Bewertung oder Handlungsempfehlung zum genannten Thema. Schreibe hoechstens zwei kurze Saetze: "
+            "Grenze zuerst freundlich deine Rolle ab und stelle danach genau eine Frage zu Cocktailwuenschen, "
+            "Geschmack, Zutaten oder einem Rezept. Bei unknown fragst du "
             "nach, ob eine Empfehlung oder Information zu einem Cocktail gesucht wird. Erfinde keine Cocktaildaten."
         ),
     }]
@@ -704,6 +724,10 @@ async def generate_intent_answer(
         raise InvalidLLMOutputError("LLM lieferte keine Intent-Antwort.")
     if intent == "conversation" and contains_recommendation_language(answer):
         raise InvalidLLMOutputError("LLM-Gespraechsantwort enthielt eine ungepruefte Empfehlung.")
+    if intent in {"conversation", "out_of_scope", "unknown"} and not intent_answer_is_usable(
+        IntentAnalysis(intent=intent, answer=answer), user_message, history
+    ):
+        raise InvalidLLMOutputError("LLM-Intent-Antwort blieb nicht sicher im Cocktail-Kontext.")
     return answer
 
 
@@ -720,8 +744,8 @@ def basic_intent_response(
     messages = {
         "conversation": conversation_fallback,
         "out_of_scope": (
-            "Dafür bin ich nicht zuständig. Ich bin dein Cocktail-Assistent und helfe dir gern bei "
-            "Empfehlungen, Zutaten, Geschmack, Stärke oder Preisen."
+            "Dazu kann ich dir keine inhaltlichen Ratschläge geben. Ich bin dein Cocktail-Assistent. "
+            "Suchst du eine Empfehlung, ein Rezept oder Informationen zu einem Cocktail?"
         ),
         "unknown": (
             "Ich habe deine Frage leider nicht verstanden. Suchst du eine Cocktail-Empfehlung oder "

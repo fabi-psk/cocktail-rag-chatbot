@@ -88,6 +88,7 @@ class ChatServiceTest(unittest.TestCase):
         cases = {
             "Hallo": "conversation",
             "Wie ist das Wetter?": "out_of_scope",
+            "Ich habe Probleme in meiner Beziehung": "out_of_scope",
             "Empfiehl mir etwas Cremiges": "recommendation",
             "Ueberrasch mich": "random",
             "Habt ihr Gin Sour?": "catalog_query",
@@ -119,6 +120,32 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "conversation")
         self.assertEqual(response["cocktails"], [])
         self.assertNotIn("preferences", response)
+
+    def test_out_of_scope_answer_requires_cocktail_transition(self):
+        advice = IntentAnalysis(
+            intent="out_of_scope",
+            action="reject",
+            answer="Du solltest offen mit deiner Partnerin sprechen und ihr gut zuhören.",
+        )
+        redirect = IntentAnalysis(
+            intent="out_of_scope",
+            action="reject",
+            answer=(
+                "Bei Beziehungsfragen kann ich dir keine Ratschläge geben. "
+                "Suchst du stattdessen einen Cocktail für einen entspannten Abend?"
+            ),
+        )
+
+        self.assertFalse(
+            chat_service.intent_answer_is_usable(
+                advice, "Ich habe Probleme in meiner Beziehung"
+            )
+        )
+        self.assertTrue(
+            chat_service.intent_answer_is_usable(
+                redirect, "Ich habe Probleme in meiner Beziehung"
+            )
+        )
 
     def test_unknown_message_does_not_start_database_search(self):
         response = asyncio.run(
