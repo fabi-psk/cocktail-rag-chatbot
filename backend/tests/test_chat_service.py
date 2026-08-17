@@ -353,6 +353,43 @@ class ChatServiceTest(unittest.TestCase):
         )
         self.assertEqual(criteria.geschmack, "fruchtig")
 
+    def test_excluded_spirit_is_not_reintroduced_as_positive_criterion(self):
+        criteria = chat_service.normalize_search_criteria(
+            CocktailSearchCriteria(
+                geschmack="fruchtig",
+                ausschluesse=["Rum"],
+            ),
+            "einen fruchtigen Cocktail ohne Rum",
+            COCKTAILS,
+        )
+
+        self.assertIsNone(criteria.spirituose)
+        self.assertEqual(criteria.geschmack, "fruchtig")
+        self.assertEqual(criteria.ausschluesse, ["Rum"])
+
+    def test_fruity_cocktail_without_rum_can_return_non_rum_match(self):
+        cocktails = COCKTAILS + [{
+            "name": "Vodka Berry",
+            "preis": 8.0,
+            "spirituose": ["Vodka"],
+            "geschmack": ["fruchtig"],
+            "staerke": "mittel",
+            "zutaten": ["Vodka", "Beerensaft"],
+            "beschreibung": "Beerig und frisch.",
+        }]
+        criteria = chat_service.normalize_search_criteria(
+            CocktailSearchCriteria(
+                geschmack="fruchtig",
+                ausschluesse=["Rum"],
+            ),
+            "einen fruchtigen Cocktail ohne Rum",
+            cocktails,
+        )
+
+        matches = chat_service.search_cocktails(criteria, cocktails, limit=10)
+
+        self.assertEqual([cocktail["name"] for cocktail in matches], ["Vodka Berry"])
+
     def test_recommendation_randomly_selects_three_from_all_matches(self):
         criteria = CocktailSearchCriteria()
         expected = [COCKTAILS[2], COCKTAILS[0]]

@@ -968,6 +968,7 @@ def normalize_search_criteria(
 ) -> CocktailSearchCriteria:
     spirits = unique_text_values(cocktails, "spirituose")
     tastes = unique_text_values(cocktails, "geschmack")
+    exclusions = criteria.ausschluesse
 
     spirituose = canonical_value(criteria.spirituose, spirits) or inferred_value_from_message(user_message, spirits)
     geschmack = canonical_value(criteria.geschmack, tastes)
@@ -977,6 +978,13 @@ def normalize_search_criteria(
 
     geschmack = geschmack or inferred_value_from_message(user_message, tastes)
 
+    # Ein ausgeschlossener Begriff darf nicht zugleich als positives Kriterium
+    # aus derselben Nachricht rekonstruiert werden.
+    if spirituose and any(term_matches(exclusion, spirituose) for exclusion in exclusions):
+        spirituose = None
+    if geschmack and any(term_matches(exclusion, geschmack) for exclusion in exclusions):
+        geschmack = None
+
     staerke = criteria.staerke
     if staerke and not any(matches_strength(staerke, cocktail) for cocktail in cocktails):
         staerke = None
@@ -985,7 +993,7 @@ def normalize_search_criteria(
         spirituose=spirituose,
         geschmack=geschmack,
         staerke=staerke,
-        ausschluesse=criteria.ausschluesse,
+        ausschluesse=exclusions,
     )
 
 
@@ -1073,6 +1081,7 @@ async def extract_search_criteria(user_message: str) -> CocktailSearchCriteria:
                 "ausdruecklich ausgeschlossene Angaben und ist sonst eine leere Liste. "
                 "staerke darf nur null, leicht, mittel, stark, hoch oder alkoholfrei sein. "
                 "Beispiele: 'starker Cocktail' -> staerke 'stark'; 'ohne Kokos' -> ausschluesse ['Kokos']; "
+                "'fruchtiger Cocktail ohne Rum' -> geschmack 'fruchtig', spirituose null, ausschluesse ['Rum']; "
                 "'mit Rum' -> spirituose 'Rum'; 'saurer Cocktail' -> geschmack 'sauer', alle anderen Felder leer."
             ),
         },
