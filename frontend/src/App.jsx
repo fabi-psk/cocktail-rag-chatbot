@@ -124,6 +124,7 @@ function App() {
   const [rouletteResult, setRouletteResult] = useState(null);
   const [expandedCocktails, setExpandedCocktails] = useState({});
   const [webRecipes, setWebRecipes] = useState([]);
+  const [cartItems, setCartItems] = useState([]);
   const [ollamaConnected, setOllamaConnected] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(() => {
@@ -233,6 +234,38 @@ function App() {
     } catch (error) {
       console.error("Fehler beim Wechseln des Modus:", error);
     }
+  };
+
+  const addToCart = (cocktail) => {
+    setCartItems((currentItems) => {
+      const existingItem = currentItems.find((item) => item.name === cocktail.name);
+      if (existingItem) {
+        return currentItems.map((item) =>
+          item.name === cocktail.name
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
+      return [...currentItems, { ...cocktail, quantity: 1 }];
+    });
+  };
+
+  const changeCartQuantity = (cocktailName, amount) => {
+    setCartItems((currentItems) =>
+      currentItems
+        .map((item) =>
+          item.name === cocktailName
+            ? { ...item, quantity: item.quantity + amount }
+            : item
+        )
+        .filter((item) => item.quantity > 0)
+    );
+  };
+
+  const removeFromCart = (cocktailName) => {
+    setCartItems((currentItems) =>
+      currentItems.filter((item) => item.name !== cocktailName)
+    );
   };
 
   // Funktion zum Senden einer Nachricht
@@ -397,6 +430,11 @@ function App() {
     ? { label: "🎲 Zufälliges Rezept entdecken", text: "Starte das Rezept-Roulette", color: "#10b981" }
     : { label: "🎲 Zufälligen Cocktail auslosen", text: "Schlage mir einen zufälligen Cocktail vor!", color: "#10b981" };
   const isRouletteRunning = rouletteResult && !rouletteResult.completed;
+  const cartCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+  const cartTotal = cartItems.reduce(
+    (total, item) => total + (item.preis || 0) * item.quantity,
+    0
+  );
 
   return (
     <div className={`app-shell ${viewMode === "mobile" ? "mobile-presentation" : ""}`}>
@@ -614,10 +652,73 @@ function App() {
 
         {/* Rechte Seite: Cocktail-Details Panel */}
         <div className="cocktail-panel">
-          <h2 className="panel-title">
-            <span>{mode === "home" ? "🏠" : "📋"}</span>
-            {mode === "home" ? ` Web-Rezept (${webRecipes.length})` : ` Rezeptekatalog (${retrievedCocktails.length})`}
-          </h2>
+          {mode === "home" && (
+            <h2 className="panel-title">
+              <span>🏠</span>
+              {` Web-Rezept (${webRecipes.length})`}
+            </h2>
+          )}
+
+          {mode === "menu" && (
+            <section className="shopping-cart" aria-label="Warenkorb">
+              <div className="cart-header">
+                <h3>🛒 Warenkorb</h3>
+                <span className="cart-count">{cartCount}</span>
+              </div>
+              {cartItems.length === 0 ? (
+                <p className="cart-empty">Noch keine Cocktails hinzugefügt.</p>
+              ) : (
+                <>
+                  <div className="cart-list">
+                    {cartItems.map((item) => (
+                      <div className="cart-item" key={item.name}>
+                        <div className="cart-item-info">
+                          <strong>{item.name}</strong>
+                          <span>{((item.preis || 0) * item.quantity).toFixed(2)} €</span>
+                        </div>
+                        <div className="cart-item-actions">
+                          <div className="cart-quantity" aria-label={`Menge für ${item.name}`}>
+                            <button
+                              type="button"
+                              onClick={() => changeCartQuantity(item.name, -1)}
+                              aria-label={`${item.name} einmal entfernen`}
+                            >
+                              −
+                            </button>
+                            <span>{item.quantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => changeCartQuantity(item.name, 1)}
+                              aria-label={`${item.name} einmal hinzufügen`}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            className="cart-remove-button"
+                            onClick={() => removeFromCart(item.name)}
+                            aria-label={`${item.name} aus dem Warenkorb entfernen`}
+                          >
+                            Entfernen
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="cart-footer">
+                    <div>
+                      <span>Gesamt</span>
+                      <strong>{cartTotal.toFixed(2)} €</strong>
+                    </div>
+                    <button type="button" onClick={() => setCartItems([])}>
+                      Warenkorb leeren
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
           
           {rouletteResult && !rouletteResult.completed ? (
             <CocktailRoulette
@@ -680,6 +781,7 @@ function App() {
               </div>
               {retrievedCocktails.map((cocktail, index) => {
                 const isExpanded = expandedCocktails[cocktail.name] || false;
+                const quantityInCart = cartItems.find((item) => item.name === cocktail.name)?.quantity || 0;
                 const highlights = [
                   ...(cocktail.geschmack || []),
                   cocktail.staerke,
@@ -700,18 +802,28 @@ function App() {
                         <span key={`${cocktail.name}-${value}`}>{value}</span>
                       ))}
                     </div>
-                    <button
-                      type="button"
-                      className="recipe-toggle"
-                      onClick={() =>
-                        setExpandedCocktails((prev) => ({
-                          ...prev,
-                          [cocktail.name]: !prev[cocktail.name],
-                        }))
-                      }
-                    >
-                      {isExpanded ? "Rezept ausblenden" : "Rezept ansehen"}
-                    </button>
+                    <div className="cocktail-card-actions">
+                      <button
+                        type="button"
+                        className="recipe-toggle"
+                        onClick={() =>
+                          setExpandedCocktails((prev) => ({
+                            ...prev,
+                            [cocktail.name]: !prev[cocktail.name],
+                          }))
+                        }
+                      >
+                        {isExpanded ? "Rezept ausblenden" : "Rezept ansehen"}
+                      </button>
+                      <button
+                        type="button"
+                        className="cart-add-button"
+                        onClick={() => addToCart(cocktail)}
+                      >
+                        Zum Warenkorb hinzufügen
+                        {quantityInCart > 0 && <span>{quantityInCart}</span>}
+                      </button>
+                    </div>
                     {isExpanded && (
                       <div className="recipe-details">
                         <div>

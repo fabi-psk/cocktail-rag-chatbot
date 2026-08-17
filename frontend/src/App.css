@@ -594,6 +594,161 @@ body {
   gap: 8px;
 }
 
+.shopping-cart {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid rgba(45, 212, 191, 0.22);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(45, 212, 191, 0.12), transparent 42%),
+    rgba(15, 23, 42, 0.66);
+}
+
+.cart-header,
+.cart-footer > div,
+.cart-item-info,
+.cart-item-actions {
+  display: flex;
+  align-items: center;
+}
+
+.cart-header {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.cart-header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.cart-count {
+  min-width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.16);
+  color: #99f6e4;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cart-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cart-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cart-item {
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.cart-item-info {
+  justify-content: space-between;
+  gap: 10px;
+  color: #f8fafc;
+  font-size: 12px;
+}
+
+.cart-item-info span {
+  flex: 0 0 auto;
+  color: #99f6e4;
+  font-weight: 700;
+}
+
+.cart-item-actions {
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cart-quantity {
+  display: grid;
+  grid-template-columns: 28px 28px 28px;
+  align-items: center;
+  text-align: center;
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cart-quantity button,
+.cart-remove-button,
+.cart-footer button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.cart-quantity button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  padding: 0;
+  font-size: 16px;
+}
+
+.cart-quantity button:hover {
+  border-color: rgba(45, 212, 191, 0.5);
+  background: rgba(45, 212, 191, 0.12);
+  color: #99f6e4;
+}
+
+.cart-remove-button,
+.cart-footer button {
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+.cart-remove-button:hover,
+.cart-footer button:hover {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+}
+
+.cart-footer {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cart-footer > div {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.cart-footer span {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cart-footer strong {
+  color: #f8fafc;
+  font-size: 16px;
+}
+
 .cocktail-card {
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -724,7 +879,6 @@ body {
 }
 
 .recipe-toggle {
-  margin-top: 12px;
   border: 1px solid rgba(168, 85, 247, 0.3);
   border-radius: 10px;
   background: rgba(168, 85, 247, 0.12);
@@ -734,6 +888,49 @@ body {
   padding: 8px 10px;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.cocktail-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cocktail-card-actions button {
+  min-width: 0;
+}
+
+.cart-add-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  border-radius: 10px;
+  background: rgba(45, 212, 191, 0.1);
+  color: #99f6e4;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+}
+
+.cart-add-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(94, 234, 212, 0.75);
+  background: rgba(45, 212, 191, 0.18);
+}
+
+.cart-add-button span {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(153, 246, 228, 0.16);
+  font-size: 10px;
 }
 
 .recipe-toggle:hover {
@@ -1065,6 +1262,10 @@ body {
 .app-shell.mobile-presentation .cocktail-card,
 .app-shell.mobile-presentation .web-recipe-card {
   padding: 14px;
+}
+
+.app-shell.mobile-presentation .cocktail-card-actions {
+  grid-template-columns: 1fr;
 }
 
 @media (max-width: 430px) {
