@@ -46,7 +46,7 @@ async def root():
         "ollama_url": OLLAMA_BASE_URL,
         "model": LLM_MODEL,
         "use_llm_answer": USE_LLM_ANSWER,
-        "intent_routing_enabled": os.getenv("INTENT_ROUTING_ENABLED", "true").lower() == "true",
+        "intent_routing": "llm",
         "ollama_connected": ollama_connected,
     }
 

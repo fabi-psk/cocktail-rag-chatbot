@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import random
 import re
 from difflib import SequenceMatcher
@@ -20,10 +19,6 @@ from services.conversation_service import ConversationService, conversation_serv
 
 
 logger = logging.getLogger("cocktail-rag")
-
-
-def intent_routing_enabled() -> bool:
-    return os.getenv("INTENT_ROUTING_ENABLED", "true").lower() == "true"
 
 
 def detect_cocktail_name(user_message: str, cocktails: list[dict[str, Any]]) -> str | None:
@@ -228,86 +223,6 @@ def is_cocktail_detail_query(user_message: str, cocktails: list[dict[str, Any]])
     )
 
 
-def is_random_request(user_message: str) -> bool:
-    normalized = normalize_text(user_message).strip()
-    if not normalized:
-        return False
-
-    random_phrases = {
-        "ueberrasch mich",
-        "uberrasch mich",
-        "zufaelliger cocktail",
-        "zufalliger cocktail",
-        "zufaelligen cocktail",
-        "zufalligen cocktail",
-        "zufaellig",
-        "zufallig",
-        "such mir irgendwas aus",
-        "such mir etwas aus",
-        "such was aus",
-        "ich kann mich nicht entscheiden",
-        "mach mir einen zufaelligen cocktail",
-        "mach mir einen zufalligen cocktail",
-        "schlage mir einen zufaelligen cocktail vor",
-        "schlage mir einen zufalligen cocktail vor",
-        "roulette",
-        "nochmal",
-        "nochmal bitte",
-    }
-    return any(phrase in normalized for phrase in random_phrases)
-
-
-def detect_intent(
-    user_message: str,
-    cocktails: list[dict[str, Any]],
-) -> ChatIntent:
-    normalized = normalize_text(user_message).strip()
-    words = set(normalized.split())
-
-    if is_greeting_message(user_message):
-        return "conversation"
-
-    short_conversation_replies = {"ne", "nee", "nein", "noe", "ja", "jo", "okay", "ok"}
-    if normalized in short_conversation_replies:
-        return "conversation"
-
-    if normalized in {"ich mag cocktail", "ich mag cocktails", "cocktails mag ich"}:
-        return "conversation"
-
-    if is_random_request(user_message):
-        return "random"
-
-    if is_catalog_query(user_message):
-        return "catalog_query"
-
-    if is_cocktail_detail_query(user_message, cocktails):
-        return "catalog_query"
-    out_of_scope_markers = {
-        "wetter", "fussball", "fußball", "aktien", "programmieren", "python", "politik",
-        "pizza", "hotel", "flug", "nachrichten", "hausaufgabe", "beziehung",
-        "liebeskummer", "trennung", "partnerin", "partner", "gesundheit", "arzt",
-        "anwalt", "rechtsberatung", "finanzberatung",
-    }
-    if any(marker in normalized for marker in out_of_scope_markers):
-        return "out_of_scope"
-
-    recommendation_markers = {
-        "empfiehl", "empfehl", "such", "find", "zeig", "welcher cocktail", "welchen cocktail",
-        "vorschlag", "ueberrasch", "überrasch", "zufall", "lust auf", "etwas anderes",
-        "ich moechte", "ich möchte", "ich haette gern", "ich hätte gern", "ich mag",
-    }
-    if any(marker in normalized for marker in recommendation_markers):
-        return "recommendation"
-
-    if any(word in words for word in {"cocktail", "cocktails", "drink", "drinks"}):
-        return "conversation"
-
-    if any(phrase in normalized for phrase in {"gut und dir", "mir geht es", "mir gehts", "wie geht es dir"}):
-        return "conversation"
-
-    return "unknown"
-
-
 async def analyze_intent_with_llm(
     user_message: str,
     history: list[ChatMessage] | None,
@@ -316,57 +231,66 @@ async def analyze_intent_with_llm(
 ) -> IntentAnalysis:
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
     values = catalog_values(cocktails)
+    router_prompt = """
+ROLLE
+Du bist der semantische Router von CocktailGPT. Interpretiere die aktuelle Nachricht anhand ihrer
+gesamten Bedeutung, des kurzen Chatverlaufs und des strukturierten Sitzungszustands. Erfinde keine
+Fakten und beantworte Fragen zur Cocktailkarte noch nicht selbst.
+
+AUSGABE
+Antworte ausschliesslich als JSON mit genau diesen acht Feldern:
+intent, action, cocktail_name, attribute, value, context_mode, confidence, answer.
+- cocktail_name, attribute und value sind Text oder null; value ist nie Boolean, Objekt oder Liste.
+- confidence ist eine Zahl von 0 bis 1.
+- Normalisiere cocktail_name auf einen Namen aus COCKTAILNAMEN_DER_KARTE.
+
+INTENTS UND ACTIONS
+- conversation + respond: Begruessung, kurze soziale Hoeflichkeit oder allgemeine Cocktail-Aussage.
+- recommendation + recommend: ausdruecklicher Wunsch nach Suche, Auswahl oder Empfehlung.
+- random + random: Ueberraschung oder zufaellige Auswahl.
+- catalog_query: Fakten und Verfuegbarkeit der Karte, ohne Empfehlung. Nutze check_availability,
+  check_attribute, list_catalog oder explain_recommendation.
+- out_of_scope + reject: jede substantielle Frage oder Beratung ausserhalb von Cocktails, etwa
+  Beziehungen, persoenliche Probleme, Gesundheit, Recht, Finanzen, Politik, Schule oder Beruf.
+- unknown + clarify: Bedeutung oder Bezug ist nicht sicher genug.
+
+ATTRIBUTE
+Nutze null oder availability, price, ingredients, flavor, strength, description, recipe.
+ingredients gilt fuer Zusammensetzung; description fuer offene Fragen zum Charakter eines Cocktails.
+
+KONTEXT
+- new_query: neue, unabhaengige Suche.
+- previous_cocktail: Bezug auf den zuletzt besprochenen Cocktail, auch durch Pronomen wie 'der' oder 'ihn'.
+- previous_search: Fortsetzung ausschliesslich der unmittelbar vorherigen Kartensuche.
+- unclear: Bezug nicht sicher; nutze unknown + clarify.
+Entscheide nach der aktuellen Nachricht, nicht automatisch nach der letzten Assistentenantwort.
+Vorlieben gelten nur fuer die aktuelle Empfehlung und werden nicht dauerhaft gespeichert.
+
+ANTWORTREGELN
+- Bei recommendation, random und catalog_query bleibt answer leer.
+- Bei conversation, out_of_scope und unknown enthaelt answer eine kurze natuerliche deutsche Antwort
+  mit genau einer passenden Frage zum Cocktail-Thema. Duze den Nutzer und wiederhole keine alte Antwort.
+- Frage nie nach dem persoenlichen Befinden und nenne bei conversation keinen ungeprueften Cocktail.
+- Bei out_of_scope: Beantworte das fremde Thema auch nicht teilweise. Gib keine Tipps, Analyse,
+  Bewertung oder Handlungsempfehlung. Grenze deine Rolle ab und leite in hoechstens zwei Saetzen
+  zu Cocktailwuenschen, Geschmack, Zutaten oder einem Rezept ueber.
+
+BEISPIELE
+- 'Gut, und dir?' -> conversation + respond.
+- 'Ich mag Gin' -> recommendation + recommend + new_query.
+- 'Habt ihr Mojito?' -> catalog_query + check_availability + new_query.
+- 'Ist der cremig?' mit zuvor genanntem Mai Tai -> catalog_query + check_attribute + previous_cocktail.
+- 'Ich habe Probleme mit meiner Freundin, was soll ich tun?' -> out_of_scope + reject.
+- 'Mein Haustier ist gestorben' -> out_of_scope + reject; keine Trauerberatung und keine Frage zum Befinden.
+- 'Empfiehl meiner Freundin einen cremigen Cocktail' -> recommendation + recommend + new_query.
+- 'Ueberrasch mich' -> random + random.
+
+Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
+""".strip()
     messages: list[dict[str, str]] = [{
         "role": "system",
         "content": (
-            "Du bist der semantische Router eines Cocktail-Assistenten. Interpretiere die aktuelle Nachricht frei "
-            "im Kontext des Verlaufs und des strukturierten Sitzungszustands. Der Anwendungscode wird deine "
-            "Entscheidung nicht anhand einzelner Woerter umdeuten. Du beantwortest Kartenfragen noch nicht selbst, "
-            "sondern beschreibst, welche Daten benoetigt werden. Erfinde keine Fakten. "
-            "Gib ausschliesslich JSON mit genau diesen Feldern zurueck: intent, action, cocktail_name, attribute, "
-            "value, context_mode, confidence, answer. Erlaubte Intents: conversation, recommendation, "
-            "random, catalog_query, out_of_scope, unknown. "
-            "Erlaubte actions: respond, recommend, random, check_availability, check_attribute, "
-            "list_catalog, explain_recommendation, reject, clarify. "
-            "Nutze respond nur fuer conversation. Bei catalog_query muss action check_availability, check_attribute, "
-            "list_catalog oder explain_recommendation sein. Wenn sich die aktuelle Nachricht auf den im Zustand "
-            "gespeicherten Cocktail bezieht und etwas ueber ihn wissen will, ist sie catalog_query und nicht conversation. "
-            "attribute ist null oder availability, price, ingredients, flavor, strength, description, recipe. "
-            "context_mode ist new_query, previous_cocktail, previous_search oder unclear. "
-            "new_query bedeutet eine neue Suche. previous_cocktail gilt bei einem Bezug auf den zuletzt besprochenen "
-            "Cocktail. Entscheide anhand der Bedeutung der gesamten aktuellen Nachricht, nicht anhand der letzten Antwort. "
-            "previous_search bedeutet, dass nur die unmittelbar vorherige Kartensuche fortgesetzt wird. "
-            "Wenn der Bezug nicht sicher erkennbar ist, nutze unclear und action clarify. "
-            "confidence ist eine Zahl von 0 bis 1. Nutze den Verlauf, um Pronomen wie 'ihn' aufzuloesen. "
-            "Normalisiere einen erkannten Cocktailnamen auf einen Namen aus COCKTAILNAMEN_DER_KARTE. "
-            "recommendation gilt nur, wenn der Nutzer ausdruecklich eine Empfehlung, Suche oder Auswahl verlangt. "
-            "random gilt fuer Wuensche wie 'Ueberrasch mich', 'zufaelliger Cocktail', "
-            "'such mir irgendwas aus' oder 'ich kann mich nicht entscheiden'. "
-            "catalog_query prueft nur Fakten, Eigenschaften und Verfuegbarkeit in der Cocktailkarte, ohne etwas zu empfehlen. "
-            "Fragen nach Existenz, Eigenschaften, Zutaten, Preis oder Beschreibung der Karte sind catalog_query. "
-            "Waehle das Attribut nach der Bedeutung: ingredients fuer Fragen zur Zusammensetzung und description "
-            "fuer offene oder subjektive Fragen zum Charakter eines Cocktails. Die spaetere Antwort-LLM wertet "
-            "das gewaehlte Datenfeld passend zur konkreten Frage semantisch aus. "
-            "Eine allgemeine Aussage wie 'Ich mag Cocktails' ist conversation, keine recommendation. "
-            "Begruessungen, rein soziale Hoeflichkeit und kurze Antworten wie 'gut und dir?' sind conversation. "
-            "Substantielle Fragen oder Bitten um Rat ausserhalb von Cocktails sind niemals conversation, sondern "
-            "out_of_scope. Dazu gehoeren insbesondere persoenliche Probleme, Beziehungen, Liebe, Familie, psychische "
-            "oder koerperliche Gesundheit, Recht, Finanzen, Politik, Schule, Beruf und allgemeine Wissensfragen. "
-            "Eine konkrete Vorliebe wie 'Ich mag Gin' oder 'stark und cremig' ist eine einmalige recommendation; "
-            "sie wird nicht gespeichert. Bei conversation, out_of_scope und unknown schreibst du in answer eine "
-            "kurze, grammatikalisch natuerliche deutsche Antwort. Bei einer Begruessung begruesst du kurz und fragst "
-            "direkt nach Cocktailwuenschen oder Geschmack, niemals nach dem persoenlichen Befinden. Sonst reagierst "
-            "du auf den bisherigen Verlauf und leitest mit einer passenden Rueckfrage zum Cocktail-Thema zurueck. "
-            "answer muss dabei ein Fragezeichen enthalten. Wiederhole keine vorherige Assistentenantwort. Bei "
-            "out_of_scope beantwortest du die fachfremde Frage inhaltlich nicht und gibst keinerlei Tipps, Analyse, "
-            "Bewertung oder Handlungsempfehlung dazu. Antworte stattdessen in hoechstens zwei kurzen Saetzen: Grenze "
-            "freundlich deine Rolle als Cocktail-Assistent ab und stelle genau eine konkrete Uebergangsfrage zu "
-            "Cocktailwuenschen, Geschmack, Zutaten oder einem Rezept. Duze den Nutzer immer und vermeide unpassende "
-            "Floskeln oder Wuensche wie 'Viel Spass'. "
-            "Bei recommendation, random und catalog_query bleibt answer leer. "
-            "value ist immer null oder Text, niemals ein Boolean, Objekt oder Array. Pruefe vor der Ausgabe intern, "
-            "dass alle acht Felder vorhanden sind und zum gewaehlten Intent passen. Bei Mehrdeutigkeit nutze action "
-            "clarify, intent unknown und erklaere die Rueckfrage in answer.\n\n"
+            router_prompt + "\n\n"
             f"COCKTAILNAMEN_DER_KARTE: {json.dumps(cocktail_names, ensure_ascii=False)}\n"
             f"GESCHMACKSWERTE: {json.dumps(values['flavors'], ensure_ascii=False)}\n"
             f"SPIRITUOSEN: {json.dumps(values['spirits'], ensure_ascii=False)}\n"
@@ -661,6 +585,11 @@ def intent_answer_is_usable(
     ):
         return False
 
+    if analysis.intent in {"conversation", "out_of_scope"} and contains_personal_support_language(
+        analysis.answer
+    ):
+        return False
+
     if analysis.intent == "out_of_scope":
         normalized_answer = normalize_text(analysis.answer)
         has_cocktail_redirect = "?" in analysis.answer and any(
@@ -681,54 +610,27 @@ def intent_answer_is_usable(
     return True
 
 
+def contains_personal_support_language(answer: str) -> bool:
+    normalized = normalize_text(answer)
+    return any(phrase in normalized for phrase in {
+        "ich bin hier um dir zuzuhoren",
+        "ich bin hier um dir zuzuhoeren",
+        "ich bin fur dich da",
+        "wie geht es dir",
+        "wie gehts dir",
+        "wie fuhlst du dich",
+        "wie fuehlst du dich",
+        "erzahl mir mehr daruber",
+        "erzaehl mir mehr darueber",
+    })
+
+
 def contains_recommendation_language(answer: str) -> bool:
     normalized = normalize_text(answer)
     return any(phrase in normalized for phrase in {
         "ich empfehle", "ich schlage", "wie waere es mit", "wie wäre es mit",
         "probier", "versuch den", "versuch die", "cocktail vorschlag",
     })
-
-
-async def generate_intent_answer(
-    intent: ChatIntent,
-    user_message: str,
-    history: list[ChatMessage] | None,
-) -> str:
-    messages: list[dict[str, str]] = [{
-        "role": "system",
-        "content": (
-            "Du bist CocktailGPT und antwortest kurz, natuerlich und auf Deutsch. Duze den Nutzer. "
-            f"Die bereits gepruefte Absicht ist: {intent}. "
-            "Reagiere auf die aktuelle Nachricht und den Verlauf, ohne eine vorherige Antwort zu wiederholen. "
-            "Bei conversation leitest du freundlich zu Cocktailwuenschen, Geschmacksrichtungen oder "
-            "Zutaten ueber und stellst genau eine passende Frage. Frage nicht nach dem persoenlichen Befinden. "
-            "Nenne bei conversation keinen konkreten Cocktail. Konkrete Empfehlungen werden an anderer "
-            "Stelle aus der geprueften Cocktailkarte erzeugt. "
-            "Wenn bereits ein Verlauf existiert, begruesse nicht erneut. Du hilfst dem Nutzer bei der Auswahl und "
-            "forderst den Nutzer niemals auf, dir bei der Auswahl zu helfen. "
-            "Bei out_of_scope beantwortest du die fachfremde Frage nicht, auch nicht teilweise. Gib keine Tipps, "
-            "Analyse, Bewertung oder Handlungsempfehlung zum genannten Thema. Schreibe hoechstens zwei kurze Saetze: "
-            "Grenze zuerst freundlich deine Rolle ab und stelle danach genau eine Frage zu Cocktailwuenschen, "
-            "Geschmack, Zutaten oder einem Rezept. Bei unknown fragst du "
-            "nach, ob eine Empfehlung oder Information zu einem Cocktail gesucht wird. Erfinde keine Cocktaildaten."
-        ),
-    }]
-    if history:
-        for message in history[-4:]:
-            if message.role in {"user", "assistant"}:
-                messages.append({"role": message.role, "content": message.content})
-    messages.append({"role": "user", "content": user_message})
-
-    answer = (await query_ollama(messages, response_format="")).strip()
-    if not answer:
-        raise InvalidLLMOutputError("LLM lieferte keine Intent-Antwort.")
-    if intent == "conversation" and contains_recommendation_language(answer):
-        raise InvalidLLMOutputError("LLM-Gespraechsantwort enthielt eine ungepruefte Empfehlung.")
-    if intent in {"conversation", "out_of_scope", "unknown"} and not intent_answer_is_usable(
-        IntentAnalysis(intent=intent, answer=answer), user_message, history
-    ):
-        raise InvalidLLMOutputError("LLM-Intent-Antwort blieb nicht sicher im Cocktail-Kontext.")
-    return answer
 
 
 def basic_intent_response(
@@ -1308,131 +1210,103 @@ async def build_chat_response(
         }
 
     catalog_context = conversations.get_catalog_context(session_id)
-    detected_intent: ChatIntent | None = None
-    generated_intent_answer = ""
-    interpretation: IntentAnalysis | None = None
-    if intent_routing_enabled():
-        local_intent = detect_intent(user_message, cocktails)
-        if (
-            catalog_context.referenced_cocktail
-            and is_previous_cocktail_detail_query(user_message, cocktails)
-        ):
-            local_intent = "catalog_query"
+    try:
+        interpretation = normalize_interpretation(
+            await analyze_intent_with_llm(
+                user_message, history, cocktails, catalog_context
+            ),
+            user_message,
+            cocktails,
+            catalog_context,
+        )
+    except (LLMError, InvalidLLMOutputError) as exc:
+        logger.warning("LLM intent detection failed: %s", exc)
+        message = (
+            "Ich konnte deine Anfrage gerade nicht zuverlässig einordnen. "
+            "Bitte versuche es gleich noch einmal."
+        )
+        return {
+            "type": "follow_up",
+            "intent": "unknown",
+            "message": message,
+            "answer": message,
+            "cocktails": [],
+            "criteria": None,
+        }
+
+    detected_intent = interpretation.intent
+    generated_intent_answer = interpretation.answer
+
+    if interpretation.action == "clarify" or interpretation.confidence < 0.55:
+        return interpretation_clarification_response(interpretation)
+    if (
+        detected_intent in {"conversation", "unknown"}
+        and interpretation.context_mode == "previous_cocktail"
+        and catalog_context.referenced_cocktail
+    ):
+        referenced = find_cocktails_by_name(
+            catalog_context.referenced_cocktail, cocktails
+        )[:1]
         try:
-            interpretation = normalize_interpretation(
-                await analyze_intent_with_llm(
-                    user_message, history, cocktails, catalog_context
-                ),
-                user_message,
-                cocktails,
-                catalog_context,
+            answer = await generate_grounded_catalog_answer(
+                user_message, interpretation, referenced, history
             )
-            detected_intent = interpretation.intent
-            generated_intent_answer = interpretation.answer
         except (LLMError, InvalidLLMOutputError) as exc:
-            logger.warning("LLM intent detection failed, using local fallback: %s", exc)
-            detected_intent = local_intent
-            if detected_intent in {"conversation", "out_of_scope", "unknown"}:
-                try:
-                    generated_intent_answer = await generate_intent_answer(
-                        detected_intent, user_message, history
-                    )
-                except (LLMError, InvalidLLMOutputError) as answer_exc:
-                    logger.warning("LLM intent answer failed, using static fallback: %s", answer_exc)
-
-        if interpretation and (
-            interpretation.action == "clarify" or interpretation.confidence < 0.55
-        ):
-            return interpretation_clarification_response(interpretation)
-        if (
-            detected_intent in {"conversation", "unknown"}
-            and interpretation
-            and interpretation.context_mode == "previous_cocktail"
-            and catalog_context.referenced_cocktail
-        ):
-            referenced = find_cocktails_by_name(
-                catalog_context.referenced_cocktail, cocktails
-            )[:1]
-            try:
-                answer = await generate_grounded_catalog_answer(
-                    user_message, interpretation, referenced, history
-                )
-            except (LLMError, InvalidLLMOutputError) as exc:
-                logger.warning(
-                    "Grounded contextual answer failed, using intent answer: %s", exc
-                )
-                answer = generated_intent_answer
-            if answer:
-                return {
-                    "type": "message",
-                    "intent": detected_intent,
-                    "message": answer,
-                    "answer": answer,
-                    "cocktails": referenced,
-                    "criteria": None,
-                }
-        if detected_intent in {"conversation", "out_of_scope", "unknown"}:
-            return basic_intent_response(
-                detected_intent, generated_intent_answer, user_message
+            logger.warning(
+                "Grounded contextual answer failed, using intent answer: %s", exc
             )
-        if detected_intent == "catalog_query":
-            if interpretation:
-                matches, criteria = execute_catalog_action(
-                    interpretation, cocktails, catalog_context
-                )
-                try:
-                    answer = await generate_grounded_catalog_answer(
-                        user_message, interpretation, matches, history
-                    )
-                except (LLMError, InvalidLLMOutputError) as exc:
-                    logger.warning(
-                        "Grounded catalog answer failed, using safe fallback: %s", exc
-                    )
-                    answer = build_catalog_fallback_answer(interpretation, matches)
+            answer = generated_intent_answer
+        if answer:
+            return {
+                "type": "message",
+                "intent": detected_intent,
+                "message": answer,
+                "answer": answer,
+                "cocktails": referenced,
+                "criteria": None,
+            }
+    if detected_intent in {"conversation", "out_of_scope", "unknown"}:
+        return basic_intent_response(
+            detected_intent, generated_intent_answer, user_message
+        )
+    if detected_intent == "catalog_query":
+        matches, criteria = execute_catalog_action(
+            interpretation, cocktails, catalog_context
+        )
+        try:
+            answer = await generate_grounded_catalog_answer(
+                user_message, interpretation, matches, history
+            )
+        except (LLMError, InvalidLLMOutputError) as exc:
+            logger.warning(
+                "Grounded catalog answer failed, using safe fallback: %s", exc
+            )
+            answer = build_catalog_fallback_answer(interpretation, matches)
 
-                response = {
-                    "type": "message",
-                    "intent": "catalog_query",
-                    "message": answer,
-                    "answer": answer,
-                    "cocktails": matches,
-                    "criteria": criteria.model_dump() if criteria else None,
-                }
-            else:
-                response = build_catalog_query_response(
-                    user_message, cocktails, catalog_context
-                )
-                criteria_payload = response.get("criteria")
-                criteria = (
-                    CocktailSearchCriteria.model_validate(criteria_payload)
-                    if criteria_payload else None
-                )
+        response = {
+            "type": "message",
+            "intent": "catalog_query",
+            "message": answer,
+            "answer": answer,
+            "cocktails": matches,
+            "criteria": criteria.model_dump() if criteria else None,
+        }
 
-            if criteria:
-                conversations.record_catalog_search(
-                    session_id,
-                    criteria,
-                    [cocktail["name"] for cocktail in response.get("cocktails", [])],
-                    append=bool(
-                        interpretation.context_mode == "previous_search"
-                        if interpretation else is_more_catalog_request(user_message)
-                    ),
-                )
-            else:
-                referenced_name = (
-                    interpretation.cocktail_name
-                    if interpretation and interpretation.cocktail_name
-                    else detect_cocktail_name(user_message, cocktails)
-                )
-                if not referenced_name and len(response.get("cocktails", [])) == 1:
-                    referenced_name = response["cocktails"][0]["name"]
-                conversations.set_referenced_cocktail(
-                    session_id, referenced_name
-                )
-            return response
+        if criteria:
+            conversations.record_catalog_search(
+                session_id,
+                criteria,
+                [cocktail["name"] for cocktail in response.get("cocktails", [])],
+                append=interpretation.context_mode == "previous_search",
+            )
+        else:
+            referenced_name = interpretation.cocktail_name
+            if not referenced_name and len(response.get("cocktails", [])) == 1:
+                referenced_name = response["cocktails"][0]["name"]
+            conversations.set_referenced_cocktail(session_id, referenced_name)
+        return response
 
-    intent = detected_intent if intent_routing_enabled() else detect_intent(user_message, cocktails)
-    if intent == "random":
+    if detected_intent == "random":
         return build_random_response(cocktails, session_id, conversations)
 
     try:
@@ -1452,6 +1326,6 @@ async def build_chat_response(
         response = {"message": answer, "answer": answer, "cocktails": matching_cocktails}
 
     response["type"] = "recommendation"
-    response["intent"] = intent
+    response["intent"] = detected_intent
     response["criteria"] = criteria.model_dump()
     return response

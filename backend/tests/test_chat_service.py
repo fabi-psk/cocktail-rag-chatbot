@@ -46,21 +46,6 @@ class FakeRepository:
 
 
 class ChatServiceTest(unittest.TestCase):
-    def setUp(self):
-        async def unavailable(*args, **kwargs):
-            raise chat_service.LLMError("LLM unavailable in unit test")
-
-        self.intent_patcher = patch.object(
-            chat_service, "analyze_intent_with_llm", unavailable
-        )
-        self.intent_patcher.start()
-        self.addCleanup(self.intent_patcher.stop)
-        self.answer_patcher = patch.object(
-            chat_service, "generate_intent_answer", unavailable
-        )
-        self.answer_patcher.start()
-        self.addCleanup(self.answer_patcher.stop)
-
     def test_removed_intents_are_rejected(self):
         with self.assertRaises(ValidationError):
             IntentAnalysis(intent="preference_update")
@@ -83,26 +68,6 @@ class ChatServiceTest(unittest.TestCase):
         with patch.object(chat_service, "query_ollama", fake_query):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.extract_search_criteria("mit Rum"))
-
-    def test_local_intent_detection(self):
-        cases = {
-            "Hallo": "conversation",
-            "Wie ist das Wetter?": "out_of_scope",
-            "Ich habe Probleme in meiner Beziehung": "out_of_scope",
-            "Empfiehl mir etwas Cremiges": "recommendation",
-            "Ueberrasch mich": "random",
-            "Habt ihr Gin Sour?": "catalog_query",
-            "Blabla": "unknown",
-        }
-        for message, expected in cases.items():
-            with self.subTest(message=message):
-                self.assertEqual(chat_service.detect_intent(message, COCKTAILS), expected)
-
-    def test_general_cocktail_statement_is_conversation(self):
-        self.assertEqual(
-            chat_service.detect_intent("Ich mag Cocktails", COCKTAILS),
-            "conversation",
-        )
 
     def test_greeting_uses_conversation_response(self):
         async def analyze(*args, **kwargs):
@@ -147,10 +112,73 @@ class ChatServiceTest(unittest.TestCase):
             )
         )
 
-    def test_unknown_message_does_not_start_database_search(self):
-        response = asyncio.run(
-            chat_service.build_chat_response("Blabla", repository=FakeRepository())
+    def test_personal_support_answer_is_rejected_even_as_conversation(self):
+        unsafe_answer = IntentAnalysis(
+            intent="conversation",
+            action="respond",
+            answer=(
+                "Das tut mir sehr leid. Ich bin hier, um dir zuzuhören. "
+                "Wie geht es dir in diesem Moment?"
+            ),
         )
+
+        self.assertFalse(
+            chat_service.intent_answer_is_usable(
+                unsafe_answer, "Mein Haustier ist gestorben"
+            )
+        )
+
+    def test_valid_llm_intent_is_not_overridden_by_local_rules(self):
+        async def analyze(*args, **kwargs):
+            return IntentAnalysis(
+                intent="conversation",
+                action="respond",
+                answer="Dabei kann ich nicht helfen. Welchen Cocktailgeschmack magst du?",
+            )
+
+        with patch.object(chat_service, "analyze_intent_with_llm", analyze):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Ich habe Probleme mit meiner Freundin, was kann ich tun?",
+                    repository=FakeRepository(),
+                )
+            )
+
+        self.assertEqual(response["intent"], "conversation")
+        self.assertEqual(
+            response["answer"],
+            "Dabei kann ich nicht helfen. Welchen Cocktailgeschmack magst du?",
+        )
+        self.assertEqual(response["cocktails"], [])
+
+    def test_llm_unknown_message_does_not_start_database_search(self):
+        async def analyze(*args, **kwargs):
+            return IntentAnalysis(
+                intent="unknown",
+                action="clarify",
+                answer="Suchst du eine Empfehlung oder Informationen zu einem Cocktail?",
+            )
+
+        with patch.object(chat_service, "analyze_intent_with_llm", analyze):
+            response = asyncio.run(
+                chat_service.build_chat_response("Blabla", repository=FakeRepository())
+            )
+
+        self.assertEqual(response["intent"], "unknown")
+        self.assertEqual(response["cocktails"], [])
+
+    def test_llm_intent_failure_does_not_guess_with_local_rules(self):
+        async def unavailable(*args, **kwargs):
+            raise chat_service.LLMError("LLM unavailable in unit test")
+
+        with patch.object(chat_service, "analyze_intent_with_llm", unavailable):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Empfiehl mir etwas Cremiges", repository=FakeRepository()
+                )
+            )
+
+        self.assertEqual(response["type"], "follow_up")
         self.assertEqual(response["intent"], "unknown")
         self.assertEqual(response["cocktails"], [])
 
