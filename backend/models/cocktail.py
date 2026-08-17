@@ -38,6 +38,15 @@ ContextMode = Literal[
     "previous_search",
     "unclear",
 ]
+ScopeCategory = Literal["cocktail", "social", "out_of_scope"]
+
+
+class ScopeAnalysis(BaseModel):
+    scope: ScopeCategory
+    answer: str = ""
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class IntentAnalysis(BaseModel):

@@ -69,6 +69,48 @@ class ChatServiceTest(unittest.TestCase):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.extract_search_criteria("mit Rum"))
 
+    def test_scope_llm_routes_emotional_statement_out_of_scope(self):
+        async def fake_query(*args, **kwargs):
+            return (
+                '{"scope":"out_of_scope","answer":"Dabei kann ich dir nicht inhaltlich helfen. '
+                'Suchst du stattdessen einen Cocktail oder ein Rezept?","confidence":0.98}'
+            )
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            result = asyncio.run(
+                chat_service.analyze_intent_with_llm(
+                    "Ich bin sehr traurig", None, COCKTAILS
+                )
+            )
+
+        self.assertEqual(result.intent, "out_of_scope")
+        self.assertEqual(result.action, "reject")
+        self.assertIn("Cocktail", result.answer)
+
+    def test_scope_llm_allows_cocktail_request_with_emotional_wording(self):
+        responses = iter([
+            '{"scope":"cocktail","answer":"","confidence":0.97}',
+            (
+                '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
+                '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
+                '"confidence":0.96,"answer":""}'
+            ),
+        ])
+
+        async def fake_query(*args, **kwargs):
+            return next(responses)
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            result = asyncio.run(
+                chat_service.analyze_intent_with_llm(
+                    "Empfiehl meiner traurigen Freundin einen fruchtigen Cocktail",
+                    None,
+                    COCKTAILS,
+                )
+            )
+
+        self.assertEqual(result.intent, "recommendation")
+
     def test_greeting_uses_conversation_response(self):
         async def analyze(*args, **kwargs):
             return IntentAnalysis(

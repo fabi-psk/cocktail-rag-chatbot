@@ -12,6 +12,7 @@ from models.cocktail import (
     ChatMessage,
     CocktailSearchCriteria,
     IntentAnalysis,
+    ScopeAnalysis,
 )
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
 from services.cocktail_service import cocktail_contains, matches_strength, normalize_text, search_cocktails, term_matches
@@ -223,12 +224,81 @@ def is_cocktail_detail_query(user_message: str, cocktails: list[dict[str, Any]])
     )
 
 
+async def analyze_scope_with_llm(
+    user_message: str,
+    history: list[ChatMessage] | None,
+) -> ScopeAnalysis:
+    scope_prompt = """
+Du bist die strenge semantische Bereichspruefung von CocktailGPT. Beurteile vor allem die aktuelle
+Nutzernachricht. Der Verlauf dient nur dazu, kurze Bezuege zu verstehen.
+
+Gib ausschliesslich JSON mit scope, answer und confidence aus.
+- cocktail: konkrete Fragen, Aussagen oder Wuensche zu Cocktails, Rezepten, Zutaten oder einer Karte.
+- social: ausschliesslich Begruessung, Dank, Verabschiedung oder eine kurze hoefliche Antwort.
+- out_of_scope: alle anderen substanziellen Aussagen und Fragen. Dazu gehoeren auch Gefuehle,
+  Trauer, Verlust, Einsamkeit, Beziehungen und persoenliche Probleme, selbst wenn kein Rat verlangt wird.
+
+Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder Stimmung erwaehnt wird.
+Beispiele:
+- 'Hallo' -> social
+- 'Ich bin sehr traurig' -> out_of_scope
+- 'Mein Haustier ist gestorben' -> out_of_scope
+- 'Ich liebe meine Ex-Freundin noch' -> out_of_scope
+- 'Empfiehl meiner traurigen Freundin einen fruchtigen Cocktail' -> cocktail
+- 'Welcher Cocktail passt zu einem ruhigen Abend?' -> cocktail
+
+Bei cocktail und social bleibt answer leer. Bei out_of_scope: Beantworte oder analysiere das fremde
+Thema nicht. Biete weder Trost noch Zuhoeren oder Hilfe dazu an und frage nicht nach Gefuehlen oder
+Befinden. Grenze in hoechstens zwei Saetzen die Rolle als Cocktail-Assistent ab und stelle genau eine
+Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
+""".strip()
+    messages: list[dict[str, str]] = [{"role": "system", "content": scope_prompt}]
+    if history:
+        for message in history[-2:]:
+            if message.role in {"user", "assistant"}:
+                messages.append({"role": message.role, "content": message.content})
+    messages.append({"role": "user", "content": user_message})
+
+    try:
+        scope = ScopeAnalysis.model_validate(
+            extract_json_object(await query_ollama(messages))
+        )
+    except Exception as exc:
+        raise InvalidLLMOutputError("LLM-Bereichspruefung war ungueltig.") from exc
+
+    if scope.confidence < 0.55:
+        raise InvalidLLMOutputError("LLM-Bereichspruefung war zu unsicher.")
+    if scope.scope == "out_of_scope":
+        candidate = IntentAnalysis(
+            intent="out_of_scope",
+            action="reject",
+            answer=scope.answer,
+            context_mode="new_query",
+            confidence=scope.confidence,
+        )
+        if not intent_answer_is_usable(candidate, user_message, history):
+            raise InvalidLLMOutputError("LLM-Bereichsantwort blieb nicht im Cocktail-Kontext.")
+    elif scope.answer.strip():
+        raise InvalidLLMOutputError("LLM-Bereichspruefung enthielt eine unerwartete Antwort.")
+    return scope
+
+
 async def analyze_intent_with_llm(
     user_message: str,
     history: list[ChatMessage] | None,
     cocktails: list[dict[str, Any]],
     catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
+    scope = await analyze_scope_with_llm(user_message, history)
+    if scope.scope == "out_of_scope":
+        return IntentAnalysis(
+            intent="out_of_scope",
+            action="reject",
+            answer=scope.answer,
+            context_mode="new_query",
+            confidence=scope.confidence,
+        )
+
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
     values = catalog_values(cocktails)
     router_prompt = """
