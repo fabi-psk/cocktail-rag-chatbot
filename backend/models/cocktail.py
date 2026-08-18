@@ -43,10 +43,8 @@ ScopeCategory = Literal["cocktail", "social", "out_of_scope"]
 
 class ScopeAnalysis(BaseModel):
     scope: ScopeCategory
-    answer: str = ""
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    spelling_errors: list[str]
-    eligible_word_count: int = Field(ge=0)
+    ordering_blocked: bool
 
     model_config = ConfigDict(extra="forbid")
 
@@ -60,8 +58,7 @@ class IntentAnalysis(BaseModel):
     value: str | None = None
     context_mode: ContextMode = "unclear"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    spelling_error_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
-    eligible_word_count: int = Field(default=0, ge=0)
+    ordering_blocked: bool = False
 
     model_config = ConfigDict(extra="forbid")
 

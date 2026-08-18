@@ -232,20 +232,22 @@ async def analyze_scope_with_llm(
 Du bist die strenge semantische Bereichspruefung von CocktailGPT. Beurteile vor allem die aktuelle
 Nutzernachricht. Der Verlauf dient nur dazu, kurze Bezuege zu verstehen.
 
-Gib ausschliesslich JSON mit scope, answer, confidence, spelling_errors und eligible_word_count aus.
+Gib ausschliesslich JSON mit scope, confidence und ordering_blocked aus. Formuliere keine Antwort
+an den Nutzer; deine einzige Aufgabe ist die semantische Einordnung.
 - cocktail: konkrete Fragen, Aussagen oder Wuensche zu Cocktails, Rezepten, Zutaten oder einer Karte.
 - social: ausschliesslich Begruessung, Dank, Verabschiedung oder eine kurze hoefliche Antwort.
 - out_of_scope: alle anderen substanziellen Aussagen und Fragen. Dazu gehoeren auch Gefuehle,
   Trauer, Verlust, Einsamkeit, Beziehungen und persoenliche Probleme, selbst wenn kein Rat verlangt wird.
 
-Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder Stimmung erwaehnt wird.
+BESTELLSPERRE
+Entscheide selbst semantisch, ob die Schreibweise so stark fehlerhaft oder unverständlich ist,
+dass eine alkoholische Bestellung nicht mehr verantwortungsvoll angenommen werden sollte.
+- ordering_blocked ist true, wenn du eine entsprechend auffaellige Schreibweise erkennst oder die
+  Nachricht weitgehend aus zufaelligen Buchstabenfolgen besteht.
+- ordering_blocked ist false bei normalen Tippfehlern, Umgangssprache, Abkuerzungen sowie Cocktailnamen,
+  Marken und Zutaten. Berechne keine Quote und gib keine Fehlerliste aus.
 
-RECHTSCHREIBPRUEFUNG
-- eligible_word_count ist die Anzahl normaler deutscher Woerter der aktuellen Nachricht.
-- Ignoriere Cocktailnamen, Marken, Zutaten, Zahlen, Abkuerzungen, Umgangssprache, Grossschreibung und Satzzeichen.
-- spelling_errors ist eine Liste aller eindeutig falsch geschriebenen pruefbaren Wortvorkommen. Wiederholt
-  sich derselbe Fehler, fuehre ihn fuer jedes Vorkommen erneut auf. Nutze eine leere Liste, wenn es keine gibt.
-- Grammatikfehler und fehlende Satzzeichen sind keine Rechtschreibfehler.
+Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder Stimmung erwaehnt wird.
 Beispiele:
 - 'Hallo' -> social
 - 'Ich bin sehr traurig' -> out_of_scope
@@ -253,13 +255,9 @@ Beispiele:
 - 'Ich liebe meine Ex-Freundin noch' -> out_of_scope
 - 'Empfiehl meiner traurigen Freundin einen fruchtigen Cocktail' -> cocktail
 - 'Welcher Cocktail passt zu einem ruhigen Abend?' -> cocktail
-- 'ich möchhte ein fruchtign coktail' -> spelling_errors ['möchhte', 'fruchtign', 'coktail'],
-  eligible_word_count 5. Nur konkrete Eigennamen wie 'Mai Tai' werden ignoriert, nicht das Wort Cocktail.
+- 'Ich moechte einen fruchtigen Coktail' -> ordering_blocked false
+- 'isdjdkv efsdiohio dsiuh' -> ordering_blocked true
 
-Bei cocktail und social bleibt answer leer. Bei out_of_scope: Beantworte oder analysiere das fremde
-Thema nicht. Biete weder Trost noch Zuhoeren oder Hilfe dazu an und frage nicht nach Gefuehlen oder
-Befinden. Grenze in hoechstens zwei Saetzen die Rolle als Cocktail-Assistent ab und stelle genau eine
-Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
 """.strip()
     messages: list[dict[str, str]] = [{"role": "system", "content": scope_prompt}]
     if history:
@@ -277,27 +275,44 @@ Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
 
     if scope.confidence < 0.55:
         raise InvalidLLMOutputError("LLM-Bereichspruefung war zu unsicher.")
-    if len(scope.spelling_errors) > scope.eligible_word_count:
-        raise InvalidLLMOutputError("LLM-Rechtschreibzaehlung war widerspruechlich.")
-    spelling_error_ratio = (
-        len(scope.spelling_errors) / scope.eligible_word_count
-        if scope.eligible_word_count else 0.0
-    )
-    if scope.scope == "out_of_scope":
-        candidate = IntentAnalysis(
-            intent="out_of_scope",
-            action="reject",
-            answer=scope.answer,
-            context_mode="new_query",
-            confidence=scope.confidence,
-            spelling_error_ratio=spelling_error_ratio,
-            eligible_word_count=scope.eligible_word_count,
-        )
-        if not intent_answer_is_usable(candidate, user_message, history):
-            raise InvalidLLMOutputError("LLM-Bereichsantwort blieb nicht im Cocktail-Kontext.")
-    elif scope.answer.strip():
-        raise InvalidLLMOutputError("LLM-Bereichspruefung enthielt eine unerwartete Antwort.")
     return scope
+
+
+async def generate_out_of_scope_answer(
+    user_message: str,
+    history: list[ChatMessage] | None,
+) -> str:
+    prompt = """
+Du bist CocktailGPT, ein Assistent ausschliesslich fuer Cocktails, Rezepte, Zutaten und Cocktailkarten.
+Die vorherige KI-Stufe hat die aktuelle Nachricht bereits sicher als fachfremd erkannt.
+
+Formuliere selbst eine kurze, natuerliche deutsche Antwort. Gehe inhaltlich nicht auf das fachfremde
+Thema ein und erwaehne, wiederhole oder bewerte es nicht. Druecke dazu weder Mitleid noch Trost aus,
+gib keine Tipps, Beratung, Analyse oder emotionale Betreuung und stelle keine Fragen zum persoenlichen
+Befinden. Empfiehl keinen konkreten Cocktail, nenne keinen Cocktailnamen und behaupte keine Zutaten,
+weil dir fuer diesen Schritt keine Kartendaten vorliegen. Stelle Alkohol niemals als Trost, Ablenkung
+oder Loesung fuer persoenliche Probleme dar.
+
+Die Antwort besteht aus genau zwei kurzen Saetzen:
+1. Grenze deine Rolle auf Cocktailthemen ab, ohne das fachfremde Thema zu benennen.
+2. Stelle eine offene Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
+
+Pruefe diese Regeln vor der Ausgabe selbst. Wiederhole keine fruehere Antwort woertlich.
+
+Gib ausschliesslich JSON mit dem Feld answer aus.
+""".strip()
+    messages: list[dict[str, str]] = [{"role": "system", "content": prompt}]
+    if history:
+        for message in history[-4:]:
+            if message.role in {"user", "assistant"}:
+                messages.append({"role": message.role, "content": message.content})
+    messages.append({"role": "user", "content": user_message})
+
+    parsed = extract_json_object(await query_ollama(messages))
+    answer = parsed.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        raise InvalidLLMOutputError("LLM-Bereichsantwort war unvollstaendig.")
+    return answer.strip()
 
 
 async def analyze_intent_with_llm(
@@ -307,19 +322,22 @@ async def analyze_intent_with_llm(
     catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
     scope = await analyze_scope_with_llm(user_message, history)
-    spelling_error_ratio = (
-        len(scope.spelling_errors) / scope.eligible_word_count
-        if scope.eligible_word_count else 0.0
-    )
+    if scope.ordering_blocked:
+        return IntentAnalysis(
+            intent="unknown",
+            action="clarify",
+            context_mode="unclear",
+            confidence=scope.confidence,
+            ordering_blocked=True,
+        )
     if scope.scope == "out_of_scope":
         return IntentAnalysis(
             intent="out_of_scope",
             action="reject",
-            answer=scope.answer,
+            answer=await generate_out_of_scope_answer(user_message, history),
             context_mode="new_query",
             confidence=scope.confidence,
-            spelling_error_ratio=spelling_error_ratio,
-            eligible_word_count=scope.eligible_word_count,
+            ordering_blocked=scope.ordering_blocked,
         )
 
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
@@ -410,10 +428,7 @@ Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
         raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from exc
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
-    return analysis.model_copy(update={
-        "spelling_error_ratio": spelling_error_ratio,
-        "eligible_word_count": scope.eligible_word_count,
-    })
+    return analysis.model_copy(update={"ordering_blocked": scope.ordering_blocked})
 
 
 def sanitize_interpretation_payload(
@@ -662,7 +677,7 @@ def intent_answer_is_usable(
     user_message: str = "",
     history: list[ChatMessage] | None = None,
 ) -> bool:
-    answer_intents = {"conversation", "out_of_scope", "unknown"}
+    answer_intents = {"conversation", "unknown"}
     if analysis.intent not in answer_intents:
         return True
     if not analysis.answer.strip():
@@ -681,19 +696,10 @@ def intent_answer_is_usable(
     ):
         return False
 
-    if analysis.intent in {"conversation", "out_of_scope"} and contains_personal_support_language(
+    if analysis.intent == "conversation" and contains_personal_support_language(
         analysis.answer
     ):
         return False
-
-    if analysis.intent == "out_of_scope":
-        normalized_answer = normalize_text(analysis.answer)
-        has_cocktail_redirect = "?" in analysis.answer and any(
-            term in normalized_answer
-            for term in {"cocktail", "geschmack", "zutat", "rezept", "alkoholfrei"}
-        )
-        if not has_cocktail_redirect or len(analysis.answer) > 320:
-            return False
 
     if history:
         previous_answers = [message.content for message in history if message.role == "assistant"]
@@ -741,16 +747,12 @@ def basic_intent_response(
     )
     messages = {
         "conversation": conversation_fallback,
-        "out_of_scope": (
-            "Dazu kann ich dir keine inhaltlichen Ratschläge geben. Ich bin dein Cocktail-Assistent. "
-            "Suchst du eine Empfehlung, ein Rezept oder Informationen zu einem Cocktail?"
-        ),
         "unknown": (
             "Ich habe deine Frage leider nicht verstanden. Suchst du eine Cocktail-Empfehlung oder "
             "Informationen zu einem bestimmten Cocktail?"
         ),
     }
-    answer = generated_answer.strip() or messages[intent]
+    answer = generated_answer.strip() or messages.get(intent, "")
     return {
         "type": "message",
         "intent": intent,
@@ -779,7 +781,6 @@ def build_cocktail_detail_response(
             "answer": answer,
             "cocktails": [],
             "criteria": None,
-            "spelling_error_ratio": interpretation.spelling_error_ratio,
         }
 
     normalized = normalize_text(user_message)
@@ -1343,7 +1344,7 @@ async def build_chat_response(
     detected_intent = interpretation.intent
     generated_intent_answer = interpretation.answer
 
-    if interpretation.spelling_error_ratio > 0.35:
+    if interpretation.ordering_blocked:
         conversations.block_ordering(session_id)
         message = (
             "Ich konnte deine Eingabe wegen vieler möglicher Schreibfehler nicht zuverlässig verstehen. "

@@ -70,12 +70,13 @@ class ChatServiceTest(unittest.TestCase):
                 asyncio.run(chat_service.extract_search_criteria("mit Rum"))
 
     def test_scope_llm_routes_emotional_statement_out_of_scope(self):
+        responses = iter([
+            '{"scope":"out_of_scope","confidence":0.98,"ordering_blocked":false}',
+            '{"answer":"Dabei helfe ich nicht inhaltlich. Welchen Cocktail suchst du?"}',
+        ])
+
         async def fake_query(*args, **kwargs):
-            return (
-                '{"scope":"out_of_scope","answer":"Dabei kann ich dir nicht inhaltlich helfen. '
-                'Suchst du stattdessen einen Cocktail oder ein Rezept?","confidence":0.98,'
-                '"spelling_errors":[],"eligible_word_count":4}'
-            )
+            return next(responses)
 
         with patch.object(chat_service, "query_ollama", fake_query):
             result = asyncio.run(
@@ -88,12 +89,31 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(result.action, "reject")
         self.assertIn("Cocktail", result.answer)
 
+    def test_out_of_scope_answer_is_generated_by_llm(self):
+        responses = iter([
+            '{"scope":"out_of_scope","confidence":0.98,"ordering_blocked":false}',
+            '{"answer":"Das liegt außerhalb meines Cocktailbereichs. Welche Geschmacksrichtung magst du?"}',
+        ])
+
+        async def fake_query(*args, **kwargs):
+            return next(responses)
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Meine Freundin betrügt mich", repository=FakeRepository()
+                )
+            )
+
+        self.assertEqual(response["intent"], "out_of_scope")
+        self.assertEqual(
+            response["answer"],
+            "Das liegt außerhalb meines Cocktailbereichs. Welche Geschmacksrichtung magst du?",
+        )
+
     def test_scope_llm_allows_cocktail_request_with_emotional_wording(self):
         responses = iter([
-            (
-                '{"scope":"cocktail","answer":"","confidence":0.97,'
-                '"spelling_errors":[],"eligible_word_count":7}'
-            ),
+            '{"scope":"cocktail","confidence":0.97,"ordering_blocked":false}',
             (
                 '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
                 '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
@@ -115,20 +135,30 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(result.intent, "recommendation")
 
-    def test_scope_requires_explicit_spelling_analysis(self):
+    def test_scope_analysis_requires_explicit_ordering_decision(self):
         async def fake_query(*args, **kwargs):
-            return '{"scope":"cocktail","answer":"","confidence":0.97}'
+            return '{"scope":"cocktail","confidence":0.97}'
 
         with patch.object(chat_service, "query_ollama", fake_query):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.analyze_scope_with_llm("Hallo", None))
 
-    def test_backend_calculates_spelling_ratio_from_llm_error_list(self):
+    def test_scope_llm_can_request_ordering_block(self):
+        async def fake_query(*args, **kwargs):
+            return '{"scope":"out_of_scope","confidence":0.97,"ordering_blocked":true}'
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            result = asyncio.run(
+                chat_service.analyze_intent_with_llm(
+                    "isdjdkv efsdiohio dsiuh", None, COCKTAILS
+                )
+            )
+
+        self.assertTrue(result.ordering_blocked)
+
+    def test_scope_llm_can_allow_normal_typo(self):
         responses = iter([
-            (
-                '{"scope":"cocktail","answer":"","confidence":0.97,'
-                '"spelling_errors":["möchhte","fruchtign","coktail"],"eligible_word_count":5}'
-            ),
+            '{"scope":"cocktail","confidence":0.97,"ordering_blocked":false}',
             (
                 '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
                 '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
@@ -142,11 +172,11 @@ class ChatServiceTest(unittest.TestCase):
         with patch.object(chat_service, "query_ollama", fake_query):
             result = asyncio.run(
                 chat_service.analyze_intent_with_llm(
-                    "ich möchhte ein fruchtign coktail", None, COCKTAILS
+                    "Ich möchte einen fruchtigen Coktail", None, COCKTAILS
                 )
             )
 
-        self.assertEqual(result.spelling_error_ratio, 0.6)
+        self.assertFalse(result.ordering_blocked)
 
     def test_greeting_uses_conversation_response(self):
         async def analyze(*args, **kwargs):
@@ -164,32 +194,6 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "conversation")
         self.assertEqual(response["cocktails"], [])
         self.assertNotIn("preferences", response)
-
-    def test_out_of_scope_answer_requires_cocktail_transition(self):
-        advice = IntentAnalysis(
-            intent="out_of_scope",
-            action="reject",
-            answer="Du solltest offen mit deiner Partnerin sprechen und ihr gut zuhören.",
-        )
-        redirect = IntentAnalysis(
-            intent="out_of_scope",
-            action="reject",
-            answer=(
-                "Bei Beziehungsfragen kann ich dir keine Ratschläge geben. "
-                "Suchst du stattdessen einen Cocktail für einen entspannten Abend?"
-            ),
-        )
-
-        self.assertFalse(
-            chat_service.intent_answer_is_usable(
-                advice, "Ich habe Probleme in meiner Beziehung"
-            )
-        )
-        self.assertTrue(
-            chat_service.intent_answer_is_usable(
-                redirect, "Ich habe Probleme in meiner Beziehung"
-            )
-        )
 
     def test_personal_support_answer_is_rejected_even_as_conversation(self):
         unsafe_answer = IntentAnalysis(
@@ -261,7 +265,7 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "unknown")
         self.assertEqual(response["cocktails"], [])
 
-    def test_spelling_error_ratio_above_35_percent_blocks_ordering(self):
+    def test_llm_ordering_block_decision_blocks_ordering(self):
         conversations = ConversationService()
 
         async def analyze(*args, **kwargs):
@@ -269,8 +273,7 @@ class ChatServiceTest(unittest.TestCase):
                 intent="recommendation",
                 action="recommend",
                 context_mode="new_query",
-                spelling_error_ratio=0.36,
-                eligible_word_count=10,
+                ordering_blocked=True,
             )
 
         with patch.object(chat_service, "analyze_intent_with_llm", analyze):
