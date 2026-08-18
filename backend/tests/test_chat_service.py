@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from models.cocktail import ChatResponse, CocktailSearchCriteria, IntentAnalysis
+from models.cocktail import ChatMessage, ChatResponse, CocktailSearchCriteria, IntentAnalysis
 from services import chat_service
 from services.conversation_service import ConversationService
 
@@ -69,10 +69,14 @@ class ChatServiceTest(unittest.TestCase):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.extract_search_criteria("mit Rum"))
 
-    def test_scope_llm_routes_emotional_statement_out_of_scope(self):
+    def test_router_llm_routes_emotional_statement_out_of_scope(self):
         responses = iter([
-            '{"scope":"out_of_scope","confidence":0.98,"ordering_blocked":false}',
-            '{"answer":"Dabei helfe ich nicht inhaltlich. Welchen Cocktail suchst du?"}',
+            (
+                '{"intent":"out_of_scope","action":"reject","cocktail_name":null,'
+                '"attribute":null,"value":null,"context_mode":"new_query",'
+                '"confidence":0.98,"answer":"Dabei helfe ich nicht inhaltlich. '
+                'Welchen Cocktail suchst du?"}'
+            ),
         ])
 
         async def fake_query(*args, **kwargs):
@@ -90,18 +94,26 @@ class ChatServiceTest(unittest.TestCase):
         self.assertIn("Cocktail", result.answer)
 
     def test_out_of_scope_answer_is_generated_by_llm(self):
+        calls = []
         responses = iter([
-            '{"scope":"out_of_scope","confidence":0.98,"ordering_blocked":false}',
-            '{"answer":"Das liegt außerhalb meines Cocktailbereichs. Welche Geschmacksrichtung magst du?"}',
+            (
+                '{"intent":"out_of_scope","action":"reject","cocktail_name":null,'
+                '"attribute":null,"value":null,"context_mode":"new_query",'
+                '"confidence":0.98,"answer":"Das liegt außerhalb meines Cocktailbereichs. '
+                'Welche Geschmacksrichtung magst du?"}'
+            ),
         ])
 
-        async def fake_query(*args, **kwargs):
+        async def fake_query(messages, *args, **kwargs):
+            calls.append(messages)
             return next(responses)
 
         with patch.object(chat_service, "query_ollama", fake_query):
             response = asyncio.run(
                 chat_service.build_chat_response(
-                    "Meine Freundin betrügt mich", repository=FakeRepository()
+                    "Meine Freundin betrügt mich",
+                    history=[ChatMessage(role="assistant", content="Hallo! Ich bin CocktailGPT.")],
+                    repository=FakeRepository(),
                 )
             )
 
@@ -110,10 +122,11 @@ class ChatServiceTest(unittest.TestCase):
             response["answer"],
             "Das liegt außerhalb meines Cocktailbereichs. Welche Geschmacksrichtung magst du?",
         )
+        self.assertEqual(len(calls), 1)
+        self.assertIn("Hallo! Ich bin CocktailGPT.", str(calls[0]))
 
-    def test_scope_llm_allows_cocktail_request_with_emotional_wording(self):
+    def test_router_llm_allows_cocktail_request_with_emotional_wording(self):
         responses = iter([
-            '{"scope":"cocktail","confidence":0.97,"ordering_blocked":false}',
             (
                 '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
                 '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
@@ -135,17 +148,26 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertEqual(result.intent, "recommendation")
 
-    def test_scope_analysis_requires_explicit_ordering_decision(self):
+    def test_safety_llm_requires_explicit_ordering_decision(self):
         async def fake_query(*args, **kwargs):
-            return '{"scope":"cocktail","confidence":0.97}'
+            return '{}'
 
         with patch.object(chat_service, "query_ollama", fake_query):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
-                asyncio.run(chat_service.analyze_scope_with_llm("Hallo", None))
+                asyncio.run(chat_service.analyze_ordering_safety_with_llm("Hallo"))
 
-    def test_scope_llm_can_request_ordering_block(self):
+    def test_router_llm_can_request_ordering_block(self):
+        responses = iter([
+            (
+                '{"intent":"unknown","action":"clarify","cocktail_name":null,'
+                '"attribute":null,"value":null,"context_mode":"unclear",'
+                '"confidence":0.97,"answer":"Welche Cocktailfrage hast du?"}'
+            ),
+            '{"ordering_blocked":true}',
+        ])
+
         async def fake_query(*args, **kwargs):
-            return '{"scope":"out_of_scope","confidence":0.97,"ordering_blocked":true}'
+            return next(responses)
 
         with patch.object(chat_service, "query_ollama", fake_query):
             result = asyncio.run(
@@ -156,9 +178,8 @@ class ChatServiceTest(unittest.TestCase):
 
         self.assertTrue(result.ordering_blocked)
 
-    def test_scope_llm_can_allow_normal_typo(self):
+    def test_router_llm_can_allow_normal_typo(self):
         responses = iter([
-            '{"scope":"cocktail","confidence":0.97,"ordering_blocked":false}',
             (
                 '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
                 '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'

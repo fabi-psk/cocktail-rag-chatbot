@@ -38,17 +38,6 @@ ContextMode = Literal[
     "previous_search",
     "unclear",
 ]
-ScopeCategory = Literal["cocktail", "social", "out_of_scope"]
-
-
-class ScopeAnalysis(BaseModel):
-    scope: ScopeCategory
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    ordering_blocked: bool
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class IntentAnalysis(BaseModel):
     intent: ChatIntent
     answer: str = ""
@@ -59,6 +48,12 @@ class IntentAnalysis(BaseModel):
     context_mode: ContextMode = "unclear"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     ordering_blocked: bool = False
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class OrderingSafetyAnalysis(BaseModel):
+    ordering_blocked: bool
 
     model_config = ConfigDict(extra="forbid")
 

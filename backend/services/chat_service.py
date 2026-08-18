@@ -12,7 +12,7 @@ from models.cocktail import (
     ChatMessage,
     CocktailSearchCriteria,
     IntentAnalysis,
-    ScopeAnalysis,
+    OrderingSafetyAnalysis,
 )
 from repositories.cocktail_repository import CocktailRepository, CocktailRepositoryError
 from services.cocktail_service import cocktail_contains, matches_strength, normalize_text, search_cocktails, term_matches
@@ -224,95 +224,30 @@ def is_cocktail_detail_query(user_message: str, cocktails: list[dict[str, Any]])
     )
 
 
-async def analyze_scope_with_llm(
+async def analyze_ordering_safety_with_llm(
     user_message: str,
-    history: list[ChatMessage] | None,
-) -> ScopeAnalysis:
-    scope_prompt = """
-Du bist die strenge semantische Bereichspruefung von CocktailGPT. Beurteile vor allem die aktuelle
-Nutzernachricht. Der Verlauf dient nur dazu, kurze Bezuege zu verstehen.
+) -> OrderingSafetyAnalysis:
+    prompt = """
+Du bist die KI-Sicherheitspruefung fuer alkoholische Bestellungen. Entscheide ausschliesslich anhand
+der Schreibweise der aktuellen Nachricht, ob sie so auffaellig oder unverstaendlich ist, dass eine
+alkoholische Bestellung nicht verantwortungsvoll angenommen werden sollte.
 
-Gib ausschliesslich JSON mit scope, confidence und ordering_blocked aus. Formuliere keine Antwort
-an den Nutzer; deine einzige Aufgabe ist die semantische Einordnung.
-- cocktail: konkrete Fragen, Aussagen oder Wuensche zu Cocktails, Rezepten, Zutaten oder einer Karte.
-- social: ausschliesslich Begruessung, Dank, Verabschiedung oder eine kurze hoefliche Antwort.
-- out_of_scope: alle anderen substanziellen Aussagen und Fragen. Dazu gehoeren auch Gefuehle,
-  Trauer, Verlust, Einsamkeit, Beziehungen und persoenliche Probleme, selbst wenn kein Rat verlangt wird.
+Normale Tippfehler, Umgangssprache, Abkuerzungen, Cocktailnamen, Marken und Zutaten fuehren nicht zur
+Sperre. Inhalt, Thema, Stimmung und persoenliche Probleme duerfen die Entscheidung niemals beeinflussen.
+Berechne keine Quote und verwende keine fest definierte Wortregel. Entscheide semantisch selbst.
 
-BESTELLSPERRE
-Entscheide selbst semantisch, ob die Schreibweise so stark fehlerhaft oder unverständlich ist,
-dass eine alkoholische Bestellung nicht mehr verantwortungsvoll angenommen werden sollte.
-- ordering_blocked ist true, wenn du eine entsprechend auffaellige Schreibweise erkennst oder die
-  Nachricht weitgehend aus zufaelligen Buchstabenfolgen besteht.
-- ordering_blocked ist false bei normalen Tippfehlern, Umgangssprache, Abkuerzungen sowie Cocktailnamen,
-  Marken und Zutaten. Berechne keine Quote und gib keine Fehlerliste aus.
-
-Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder Stimmung erwaehnt wird.
-Beispiele:
-- 'Hallo' -> social
-- 'Ich bin sehr traurig' -> out_of_scope
-- 'Mein Haustier ist gestorben' -> out_of_scope
-- 'Ich liebe meine Ex-Freundin noch' -> out_of_scope
-- 'Empfiehl meiner traurigen Freundin einen fruchtigen Cocktail' -> cocktail
-- 'Welcher Cocktail passt zu einem ruhigen Abend?' -> cocktail
-- 'Ich moechte einen fruchtigen Coktail' -> ordering_blocked false
-- 'isdjdkv efsdiohio dsiuh' -> ordering_blocked true
-
+Gib ausschliesslich JSON mit dem Feld ordering_blocked aus.
 """.strip()
-    messages: list[dict[str, str]] = [{"role": "system", "content": scope_prompt}]
-    if history:
-        for message in history[-2:]:
-            if message.role in {"user", "assistant"}:
-                messages.append({"role": message.role, "content": message.content})
-    messages.append({"role": "user", "content": user_message})
-
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": user_message},
+    ]
     try:
-        scope = ScopeAnalysis.model_validate(
+        return OrderingSafetyAnalysis.model_validate(
             extract_json_object(await query_ollama(messages))
         )
     except Exception as exc:
-        raise InvalidLLMOutputError("LLM-Bereichspruefung war ungueltig.") from exc
-
-    if scope.confidence < 0.55:
-        raise InvalidLLMOutputError("LLM-Bereichspruefung war zu unsicher.")
-    return scope
-
-
-async def generate_out_of_scope_answer(
-    user_message: str,
-    history: list[ChatMessage] | None,
-) -> str:
-    prompt = """
-Du bist CocktailGPT, ein Assistent ausschliesslich fuer Cocktails, Rezepte, Zutaten und Cocktailkarten.
-Die vorherige KI-Stufe hat die aktuelle Nachricht bereits sicher als fachfremd erkannt.
-
-Formuliere selbst eine kurze, natuerliche deutsche Antwort. Gehe inhaltlich nicht auf das fachfremde
-Thema ein und erwaehne, wiederhole oder bewerte es nicht. Druecke dazu weder Mitleid noch Trost aus,
-gib keine Tipps, Beratung, Analyse oder emotionale Betreuung und stelle keine Fragen zum persoenlichen
-Befinden. Empfiehl keinen konkreten Cocktail, nenne keinen Cocktailnamen und behaupte keine Zutaten,
-weil dir fuer diesen Schritt keine Kartendaten vorliegen. Stelle Alkohol niemals als Trost, Ablenkung
-oder Loesung fuer persoenliche Probleme dar.
-
-Die Antwort besteht aus genau zwei kurzen Saetzen:
-1. Grenze deine Rolle auf Cocktailthemen ab, ohne das fachfremde Thema zu benennen.
-2. Stelle eine offene Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
-
-Pruefe diese Regeln vor der Ausgabe selbst. Wiederhole keine fruehere Antwort woertlich.
-
-Gib ausschliesslich JSON mit dem Feld answer aus.
-""".strip()
-    messages: list[dict[str, str]] = [{"role": "system", "content": prompt}]
-    if history:
-        for message in history[-4:]:
-            if message.role in {"user", "assistant"}:
-                messages.append({"role": message.role, "content": message.content})
-    messages.append({"role": "user", "content": user_message})
-
-    parsed = extract_json_object(await query_ollama(messages))
-    answer = parsed.get("answer")
-    if not isinstance(answer, str) or not answer.strip():
-        raise InvalidLLMOutputError("LLM-Bereichsantwort war unvollstaendig.")
-    return answer.strip()
+        raise InvalidLLMOutputError("LLM-Sicherheitspruefung war ungueltig.") from exc
 
 
 async def analyze_intent_with_llm(
@@ -321,25 +256,6 @@ async def analyze_intent_with_llm(
     cocktails: list[dict[str, Any]],
     catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
-    scope = await analyze_scope_with_llm(user_message, history)
-    if scope.ordering_blocked:
-        return IntentAnalysis(
-            intent="unknown",
-            action="clarify",
-            context_mode="unclear",
-            confidence=scope.confidence,
-            ordering_blocked=True,
-        )
-    if scope.scope == "out_of_scope":
-        return IntentAnalysis(
-            intent="out_of_scope",
-            action="reject",
-            answer=await generate_out_of_scope_answer(user_message, history),
-            context_mode="new_query",
-            confidence=scope.confidence,
-            ordering_blocked=scope.ordering_blocked,
-        )
-
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
     values = catalog_values(cocktails)
     router_prompt = """
@@ -385,6 +301,15 @@ ANTWORTREGELN
 - Bei out_of_scope: Beantworte das fremde Thema auch nicht teilweise. Gib keine Tipps, Analyse,
   Bewertung oder Handlungsempfehlung. Grenze deine Rolle ab und leite in hoechstens zwei Saetzen
   zu Cocktailwuenschen, Geschmack, Zutaten oder einem Rezept ueber.
+- Stelle Alkohol niemals als Trost, Ablenkung oder Loesung fuer persoenliche Probleme dar.
+
+ZWINGENDES OUT-OF-SCOPE-SCHEMA
+Wenn intent=out_of_scope, muss answer genau diese drei Aufgaben erfuellen:
+1. Keine fachfremden Tipps geben und das fremde Thema nicht beantworten oder bewerten.
+2. Die eigene Rolle freundlich auf Cocktailthemen begrenzen.
+3. Mit genau einer Frage zum Cocktailthema ueberleiten.
+Beginne direkt mit der Rollenabgrenzung. Schreibe kein Mitgefuehl, kein "ich verstehe", keine
+emotionale Hilfe und keine Aussage ueber Stimmung oder Situation. Nenne keinen konkreten Cocktail.
 
 BEISPIELE
 - 'Gut, und dir?' -> conversation + respond.
@@ -425,10 +350,14 @@ Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
     try:
         analysis = IntentAnalysis.model_validate(parsed)
     except Exception as exc:
+        logger.warning("Invalid LLM router payload: %r", parsed)
         raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from exc
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
-    return analysis.model_copy(update={"ordering_blocked": scope.ordering_blocked})
+    if analysis.intent == "unknown":
+        safety = await analyze_ordering_safety_with_llm(user_message)
+        return analysis.model_copy(update={"ordering_blocked": safety.ordering_blocked})
+    return analysis
 
 
 def sanitize_interpretation_payload(
@@ -677,7 +606,7 @@ def intent_answer_is_usable(
     user_message: str = "",
     history: list[ChatMessage] | None = None,
 ) -> bool:
-    answer_intents = {"conversation", "unknown"}
+    answer_intents = {"conversation", "out_of_scope", "unknown"}
     if analysis.intent not in answer_intents:
         return True
     if not analysis.answer.strip():
