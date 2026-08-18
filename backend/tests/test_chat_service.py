@@ -73,7 +73,8 @@ class ChatServiceTest(unittest.TestCase):
         async def fake_query(*args, **kwargs):
             return (
                 '{"scope":"out_of_scope","answer":"Dabei kann ich dir nicht inhaltlich helfen. '
-                'Suchst du stattdessen einen Cocktail oder ein Rezept?","confidence":0.98}'
+                'Suchst du stattdessen einen Cocktail oder ein Rezept?","confidence":0.98,'
+                '"spelling_errors":[],"eligible_word_count":4}'
             )
 
         with patch.object(chat_service, "query_ollama", fake_query):
@@ -89,7 +90,10 @@ class ChatServiceTest(unittest.TestCase):
 
     def test_scope_llm_allows_cocktail_request_with_emotional_wording(self):
         responses = iter([
-            '{"scope":"cocktail","answer":"","confidence":0.97}',
+            (
+                '{"scope":"cocktail","answer":"","confidence":0.97,'
+                '"spelling_errors":[],"eligible_word_count":7}'
+            ),
             (
                 '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
                 '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
@@ -110,6 +114,39 @@ class ChatServiceTest(unittest.TestCase):
             )
 
         self.assertEqual(result.intent, "recommendation")
+
+    def test_scope_requires_explicit_spelling_analysis(self):
+        async def fake_query(*args, **kwargs):
+            return '{"scope":"cocktail","answer":"","confidence":0.97}'
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            with self.assertRaises(chat_service.InvalidLLMOutputError):
+                asyncio.run(chat_service.analyze_scope_with_llm("Hallo", None))
+
+    def test_backend_calculates_spelling_ratio_from_llm_error_list(self):
+        responses = iter([
+            (
+                '{"scope":"cocktail","answer":"","confidence":0.97,'
+                '"spelling_errors":["möchhte","fruchtign","coktail"],"eligible_word_count":5}'
+            ),
+            (
+                '{"intent":"recommendation","action":"recommend","cocktail_name":null,'
+                '"attribute":"flavor","value":"fruchtig","context_mode":"new_query",'
+                '"confidence":0.96,"answer":""}'
+            ),
+        ])
+
+        async def fake_query(*args, **kwargs):
+            return next(responses)
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            result = asyncio.run(
+                chat_service.analyze_intent_with_llm(
+                    "ich möchhte ein fruchtign coktail", None, COCKTAILS
+                )
+            )
+
+        self.assertEqual(result.spelling_error_ratio, 0.6)
 
     def test_greeting_uses_conversation_response(self):
         async def analyze(*args, **kwargs):

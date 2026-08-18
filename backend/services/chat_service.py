@@ -232,7 +232,7 @@ async def analyze_scope_with_llm(
 Du bist die strenge semantische Bereichspruefung von CocktailGPT. Beurteile vor allem die aktuelle
 Nutzernachricht. Der Verlauf dient nur dazu, kurze Bezuege zu verstehen.
 
-Gib ausschliesslich JSON mit scope, answer, confidence, spelling_error_ratio und eligible_word_count aus.
+Gib ausschliesslich JSON mit scope, answer, confidence, spelling_errors und eligible_word_count aus.
 - cocktail: konkrete Fragen, Aussagen oder Wuensche zu Cocktails, Rezepten, Zutaten oder einer Karte.
 - social: ausschliesslich Begruessung, Dank, Verabschiedung oder eine kurze hoefliche Antwort.
 - out_of_scope: alle anderen substanziellen Aussagen und Fragen. Dazu gehoeren auch Gefuehle,
@@ -243,8 +243,8 @@ Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder St
 RECHTSCHREIBPRUEFUNG
 - eligible_word_count ist die Anzahl normaler deutscher Woerter der aktuellen Nachricht.
 - Ignoriere Cocktailnamen, Marken, Zutaten, Zahlen, Abkuerzungen, Umgangssprache, Grossschreibung und Satzzeichen.
-- spelling_error_ratio ist die Anzahl eindeutig falsch geschriebener pruefbarer Woerter geteilt durch
-  eligible_word_count. Nutze 0, wenn keine pruefbaren Woerter vorhanden sind.
+- spelling_errors ist eine Liste aller eindeutig falsch geschriebenen pruefbaren Wortvorkommen. Wiederholt
+  sich derselbe Fehler, fuehre ihn fuer jedes Vorkommen erneut auf. Nutze eine leere Liste, wenn es keine gibt.
 - Grammatikfehler und fehlende Satzzeichen sind keine Rechtschreibfehler.
 Beispiele:
 - 'Hallo' -> social
@@ -253,6 +253,8 @@ Beispiele:
 - 'Ich liebe meine Ex-Freundin noch' -> out_of_scope
 - 'Empfiehl meiner traurigen Freundin einen fruchtigen Cocktail' -> cocktail
 - 'Welcher Cocktail passt zu einem ruhigen Abend?' -> cocktail
+- 'ich möchhte ein fruchtign coktail' -> spelling_errors ['möchhte', 'fruchtign', 'coktail'],
+  eligible_word_count 5. Nur konkrete Eigennamen wie 'Mai Tai' werden ignoriert, nicht das Wort Cocktail.
 
 Bei cocktail und social bleibt answer leer. Bei out_of_scope: Beantworte oder analysiere das fremde
 Thema nicht. Biete weder Trost noch Zuhoeren oder Hilfe dazu an und frage nicht nach Gefuehlen oder
@@ -275,6 +277,12 @@ Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
 
     if scope.confidence < 0.55:
         raise InvalidLLMOutputError("LLM-Bereichspruefung war zu unsicher.")
+    if len(scope.spelling_errors) > scope.eligible_word_count:
+        raise InvalidLLMOutputError("LLM-Rechtschreibzaehlung war widerspruechlich.")
+    spelling_error_ratio = (
+        len(scope.spelling_errors) / scope.eligible_word_count
+        if scope.eligible_word_count else 0.0
+    )
     if scope.scope == "out_of_scope":
         candidate = IntentAnalysis(
             intent="out_of_scope",
@@ -282,6 +290,8 @@ Frage zu Cocktailwuenschen, Geschmack, Zutaten oder Rezepten.
             answer=scope.answer,
             context_mode="new_query",
             confidence=scope.confidence,
+            spelling_error_ratio=spelling_error_ratio,
+            eligible_word_count=scope.eligible_word_count,
         )
         if not intent_answer_is_usable(candidate, user_message, history):
             raise InvalidLLMOutputError("LLM-Bereichsantwort blieb nicht im Cocktail-Kontext.")
@@ -297,6 +307,10 @@ async def analyze_intent_with_llm(
     catalog_context: CatalogContext | None = None,
 ) -> IntentAnalysis:
     scope = await analyze_scope_with_llm(user_message, history)
+    spelling_error_ratio = (
+        len(scope.spelling_errors) / scope.eligible_word_count
+        if scope.eligible_word_count else 0.0
+    )
     if scope.scope == "out_of_scope":
         return IntentAnalysis(
             intent="out_of_scope",
@@ -304,7 +318,7 @@ async def analyze_intent_with_llm(
             answer=scope.answer,
             context_mode="new_query",
             confidence=scope.confidence,
-            spelling_error_ratio=scope.spelling_error_ratio,
+            spelling_error_ratio=spelling_error_ratio,
             eligible_word_count=scope.eligible_word_count,
         )
 
@@ -397,7 +411,7 @@ Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
     return analysis.model_copy(update={
-        "spelling_error_ratio": scope.spelling_error_ratio,
+        "spelling_error_ratio": spelling_error_ratio,
         "eligible_word_count": scope.eligible_word_count,
     })
 
@@ -765,6 +779,7 @@ def build_cocktail_detail_response(
             "answer": answer,
             "cocktails": [],
             "criteria": None,
+            "spelling_error_ratio": interpretation.spelling_error_ratio,
         }
 
     normalized = normalize_text(user_message)
