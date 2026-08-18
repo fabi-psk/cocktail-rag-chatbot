@@ -641,6 +641,75 @@ body {
   font-size: 12px;
 }
 
+.ordering-lock {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(248, 113, 113, 0.13), transparent 48%),
+    rgba(127, 29, 29, 0.16);
+}
+
+.ordering-lock strong {
+  color: #fecaca;
+  font-size: 13px;
+}
+
+.ordering-lock p {
+  margin: 5px 0 10px;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ordering-lock > button,
+.unlock-form button {
+  border: 1px solid rgba(252, 165, 165, 0.36);
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.1);
+  color: #fecaca;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.unlock-form label {
+  display: block;
+  margin-bottom: 5px;
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.unlock-form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.unlock-form input {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #f8fafc;
+  padding: 7px 9px;
+  outline: none;
+}
+
+.unlock-form input:focus {
+  border-color: rgba(252, 165, 165, 0.7);
+}
+
+.unlock-form > span {
+  display: block;
+  margin-top: 6px;
+  color: #fca5a5;
+  font-size: 10px;
+}
+
 .cart-list {
   display: flex;
   flex-direction: column;
@@ -705,6 +774,11 @@ body {
   border-color: rgba(45, 212, 191, 0.5);
   background: rgba(45, 212, 191, 0.12);
   color: #99f6e4;
+}
+
+.cart-quantity button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .cart-remove-button,
@@ -921,6 +995,15 @@ body {
   transform: translateY(-1px);
   border-color: rgba(94, 234, 212, 0.75);
   background: rgba(45, 212, 191, 0.18);
+}
+
+.cart-add-button:disabled {
+  transform: none;
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.14);
+  color: #fca5a5;
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .cart-add-button span {

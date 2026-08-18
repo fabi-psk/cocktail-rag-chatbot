@@ -224,6 +224,43 @@ class ChatServiceTest(unittest.TestCase):
         self.assertEqual(response["intent"], "unknown")
         self.assertEqual(response["cocktails"], [])
 
+    def test_spelling_error_ratio_above_35_percent_blocks_ordering(self):
+        conversations = ConversationService()
+
+        async def analyze(*args, **kwargs):
+            return IntentAnalysis(
+                intent="recommendation",
+                action="recommend",
+                context_mode="new_query",
+                spelling_error_ratio=0.36,
+                eligible_word_count=10,
+            )
+
+        with patch.object(chat_service, "analyze_intent_with_llm", analyze):
+            response = asyncio.run(
+                chat_service.build_chat_response(
+                    "Falsch geschriebene Testanfrage",
+                    repository=FakeRepository(),
+                    conversations=conversations,
+                    session_id="blocked-session",
+                )
+            )
+
+        self.assertEqual(response["type"], "follow_up")
+        self.assertTrue(conversations.is_ordering_blocked("blocked-session"))
+
+    def test_ordering_block_survives_chat_reset_until_staff_unlocks(self):
+        conversations = ConversationService()
+        conversations.block_ordering("blocked-session")
+
+        conversations.reset_session("blocked-session")
+
+        self.assertTrue(conversations.is_ordering_blocked("blocked-session"))
+        self.assertFalse(conversations.unlock_ordering("blocked-session", "0000"))
+        self.assertTrue(conversations.is_ordering_blocked("blocked-session"))
+        self.assertTrue(conversations.unlock_ordering("blocked-session", "1111"))
+        self.assertFalse(conversations.is_ordering_blocked("blocked-session"))
+
     def test_low_confidence_interpretation_asks_for_clarification(self):
         async def analyze(*args, **kwargs):
             return IntentAnalysis(

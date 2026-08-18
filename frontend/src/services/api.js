@@ -41,3 +41,14 @@ export function resetChatSession(sessionId) {
     method: "DELETE",
   });
 }
+
+export function fetchOrderingStatus(sessionId) {
+  return request(`/chat/session/${sessionId}/ordering-status`);
+}
+
+export function unlockOrdering(sessionId, password) {
+  return request(`/chat/session/${sessionId}/unlock-ordering`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}

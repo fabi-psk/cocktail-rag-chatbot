@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import "./App.css";
-import { fetchBackendStatus, resetChatSession, sendChatMessage } from "./services/api";
+import {
+  fetchBackendStatus,
+  fetchOrderingStatus,
+  resetChatSession,
+  sendChatMessage,
+  unlockOrdering,
+} from "./services/api";
 
 const createSessionId = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -8,6 +14,21 @@ const createSessionId = () => {
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
+
+const getOrCreateSessionId = () => {
+  try {
+    const storedSessionId = window.localStorage.getItem("cocktailgpt-session-id");
+    if (storedSessionId) return storedSessionId;
+    const sessionId = createSessionId();
+    window.localStorage.setItem("cocktailgpt-session-id", sessionId);
+    return sessionId;
+  } catch {
+    return createSessionId();
+  }
+};
+
+const isAlcoholicCocktail = (cocktail) =>
+  normalize(cocktail?.staerke) !== "alkoholfrei" && (cocktail?.spirituose?.length || 0) > 0;
 
 const welcomeMessage = (mode) => mode === "home"
   ? "Willkommen im **Zuhause-Modus**. Nenne mir einen konkreten Cocktail, dann suche ich das Rezept auf einer vertrauenswürdigen Webseite und zeige dir Zutaten, Zubereitung und Quelle."
@@ -125,6 +146,11 @@ function App() {
   const [expandedCocktails, setExpandedCocktails] = useState({});
   const [webRecipes, setWebRecipes] = useState([]);
   const [cartItems, setCartItems] = useState([]);
+  const [orderingBlocked, setOrderingBlocked] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [isUnlocking, setIsUnlocking] = useState(false);
   const [ollamaConnected, setOllamaConnected] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(() => {
@@ -136,7 +162,7 @@ function App() {
   });
 
   const messagesEndRef = useRef(null);
-  const sessionIdRef = useRef(createSessionId());
+  const sessionIdRef = useRef(getOrCreateSessionId());
   const rouletteRunRef = useRef(0);
 
   // Automatisches Scrollen zum Ende des Chats bei neuen Nachrichten
@@ -167,6 +193,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    fetchOrderingStatus(sessionIdRef.current)
+      .then((data) => setOrderingBlocked(Boolean(data.ordering_blocked)))
+      .catch(() => setOrderingBlocked(false));
+  }, []);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("cocktailgpt-view", viewMode);
     } catch {
@@ -175,6 +207,9 @@ function App() {
   }, [viewMode]);
 
   const applyChatData = (data) => {
+    if (typeof data.ordering_blocked === "boolean") {
+      setOrderingBlocked(data.ordering_blocked);
+    }
     setWebRecipes(data.web_recipes || []);
     if (data.type === "random" && data.selected_cocktail) {
       rouletteRunRef.current += 1;
@@ -209,8 +244,6 @@ function App() {
     setExpandedCocktails({});
     setWebRecipes([]);
     setInputValue("");
-    sessionIdRef.current = createSessionId();
-
     try {
       await resetChatSession(oldSessionId);
     } catch (error) {
@@ -228,7 +261,6 @@ function App() {
     setRouletteResult(null);
     setExpandedCocktails({});
     setInputValue("");
-    sessionIdRef.current = createSessionId();
     try {
       await resetChatSession(oldSessionId);
     } catch (error) {
@@ -237,6 +269,7 @@ function App() {
   };
 
   const addToCart = (cocktail) => {
+    if (orderingBlocked && isAlcoholicCocktail(cocktail)) return;
     setCartItems((currentItems) => {
       const existingItem = currentItems.find((item) => item.name === cocktail.name);
       if (existingItem) {
@@ -251,21 +284,41 @@ function App() {
   };
 
   const changeCartQuantity = (cocktailName, amount) => {
-    setCartItems((currentItems) =>
-      currentItems
+    setCartItems((currentItems) => {
+      const selectedItem = currentItems.find((item) => item.name === cocktailName);
+      if (orderingBlocked && amount > 0 && isAlcoholicCocktail(selectedItem)) {
+        return currentItems;
+      }
+      return currentItems
         .map((item) =>
           item.name === cocktailName
             ? { ...item, quantity: item.quantity + amount }
             : item
         )
-        .filter((item) => item.quantity > 0)
-    );
+        .filter((item) => item.quantity > 0);
+    });
   };
 
   const removeFromCart = (cocktailName) => {
     setCartItems((currentItems) =>
       currentItems.filter((item) => item.name !== cocktailName)
     );
+  };
+
+  const handleUnlockOrdering = async (event) => {
+    event.preventDefault();
+    setUnlockError("");
+    setIsUnlocking(true);
+    try {
+      await unlockOrdering(sessionIdRef.current, unlockPassword);
+      setOrderingBlocked(false);
+      setUnlockOpen(false);
+      setUnlockPassword("");
+    } catch {
+      setUnlockError("Passwort nicht korrekt.");
+    } finally {
+      setIsUnlocking(false);
+    }
   };
 
   // Funktion zum Senden einer Nachricht
@@ -665,6 +718,35 @@ function App() {
                 <h3>🛒 Warenkorb</h3>
                 <span className="cart-count">{cartCount}</span>
               </div>
+              {orderingBlocked && (
+                <div className="ordering-lock" role="alert">
+                  <strong>Alkoholische Bestellungen gesperrt</strong>
+                  <p>Die Sperre kann nur durch das Barpersonal aufgehoben werden.</p>
+                  {!unlockOpen ? (
+                    <button type="button" onClick={() => setUnlockOpen(true)}>
+                      Durch Barpersonal entsperren
+                    </button>
+                  ) : (
+                    <form onSubmit={handleUnlockOrdering} className="unlock-form">
+                      <label htmlFor="bar-password">Personal-Passwort</label>
+                      <div>
+                        <input
+                          id="bar-password"
+                          type="password"
+                          inputMode="numeric"
+                          value={unlockPassword}
+                          onChange={(event) => setUnlockPassword(event.target.value)}
+                          autoFocus
+                        />
+                        <button type="submit" disabled={isUnlocking || !unlockPassword}>
+                          {isUnlocking ? "Prüfe..." : "Entsperren"}
+                        </button>
+                      </div>
+                      {unlockError && <span>{unlockError}</span>}
+                    </form>
+                  )}
+                </div>
+              )}
               {cartItems.length === 0 ? (
                 <p className="cart-empty">Noch keine Cocktails hinzugefügt.</p>
               ) : (
@@ -690,6 +772,7 @@ function App() {
                               type="button"
                               onClick={() => changeCartQuantity(item.name, 1)}
                               aria-label={`${item.name} einmal hinzufügen`}
+                              disabled={orderingBlocked && isAlcoholicCocktail(item)}
                             >
                               +
                             </button>
@@ -819,8 +902,14 @@ function App() {
                         type="button"
                         className="cart-add-button"
                         onClick={() => addToCart(cocktail)}
+                        disabled={orderingBlocked && isAlcoholicCocktail(cocktail)}
+                        title={orderingBlocked && isAlcoholicCocktail(cocktail)
+                          ? "Alkoholische Bestellungen sind durch das Barpersonal gesperrt."
+                          : undefined}
                       >
-                        Zum Warenkorb hinzufügen
+                        {orderingBlocked && isAlcoholicCocktail(cocktail)
+                          ? "Bestellung gesperrt"
+                          : "Zum Warenkorb hinzufügen"}
                         {quantityInCart > 0 && <span>{quantityInCart}</span>}
                       </button>
                     </div>

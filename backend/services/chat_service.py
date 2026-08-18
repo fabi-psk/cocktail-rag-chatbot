@@ -232,13 +232,20 @@ async def analyze_scope_with_llm(
 Du bist die strenge semantische Bereichspruefung von CocktailGPT. Beurteile vor allem die aktuelle
 Nutzernachricht. Der Verlauf dient nur dazu, kurze Bezuege zu verstehen.
 
-Gib ausschliesslich JSON mit scope, answer und confidence aus.
+Gib ausschliesslich JSON mit scope, answer, confidence, spelling_error_ratio und eligible_word_count aus.
 - cocktail: konkrete Fragen, Aussagen oder Wuensche zu Cocktails, Rezepten, Zutaten oder einer Karte.
 - social: ausschliesslich Begruessung, Dank, Verabschiedung oder eine kurze hoefliche Antwort.
 - out_of_scope: alle anderen substanziellen Aussagen und Fragen. Dazu gehoeren auch Gefuehle,
   Trauer, Verlust, Einsamkeit, Beziehungen und persoenliche Probleme, selbst wenn kein Rat verlangt wird.
 
 Eine Cocktailanfrage bleibt cocktail, auch wenn darin eine andere Person oder Stimmung erwaehnt wird.
+
+RECHTSCHREIBPRUEFUNG
+- eligible_word_count ist die Anzahl normaler deutscher Woerter der aktuellen Nachricht.
+- Ignoriere Cocktailnamen, Marken, Zutaten, Zahlen, Abkuerzungen, Umgangssprache, Grossschreibung und Satzzeichen.
+- spelling_error_ratio ist die Anzahl eindeutig falsch geschriebener pruefbarer Woerter geteilt durch
+  eligible_word_count. Nutze 0, wenn keine pruefbaren Woerter vorhanden sind.
+- Grammatikfehler und fehlende Satzzeichen sind keine Rechtschreibfehler.
 Beispiele:
 - 'Hallo' -> social
 - 'Ich bin sehr traurig' -> out_of_scope
@@ -297,6 +304,8 @@ async def analyze_intent_with_llm(
             answer=scope.answer,
             context_mode="new_query",
             confidence=scope.confidence,
+            spelling_error_ratio=scope.spelling_error_ratio,
+            eligible_word_count=scope.eligible_word_count,
         )
 
     cocktail_names = [cocktail.get("name") for cocktail in cocktails if cocktail.get("name")]
@@ -387,7 +396,10 @@ Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
         raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from exc
     if not intent_answer_is_usable(analysis, user_message, history):
         raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
-    return analysis
+    return analysis.model_copy(update={
+        "spelling_error_ratio": scope.spelling_error_ratio,
+        "eligible_word_count": scope.eligible_word_count,
+    })
 
 
 def sanitize_interpretation_payload(
@@ -1315,6 +1327,21 @@ async def build_chat_response(
 
     detected_intent = interpretation.intent
     generated_intent_answer = interpretation.answer
+
+    if interpretation.spelling_error_ratio > 0.35:
+        conversations.block_ordering(session_id)
+        message = (
+            "Ich konnte deine Eingabe wegen vieler möglicher Schreibfehler nicht zuverlässig verstehen. "
+            "Alkoholische Bestellungen sind gesperrt, bis das Barpersonal die Sperre aufhebt."
+        )
+        return {
+            "type": "follow_up",
+            "intent": "unknown",
+            "message": message,
+            "answer": message,
+            "cocktails": [],
+            "criteria": None,
+        }
 
     if interpretation.action == "clarify" or interpretation.confidence < 0.55:
         return interpretation_clarification_response(interpretation)
