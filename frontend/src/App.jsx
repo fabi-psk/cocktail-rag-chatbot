@@ -15,6 +15,8 @@ const createSessionId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+const VIEW_STORAGE_KEY = "cocktailgpt-view-v2";
+
 const getOrCreateSessionId = () => {
   try {
     const storedSessionId = window.localStorage.getItem("cocktailgpt-session-id");
@@ -153,9 +155,10 @@ function App() {
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [ollamaConnected, setOllamaConnected] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState("chat");
   const [viewMode, setViewMode] = useState(() => {
     try {
-      return window.localStorage.getItem("cocktailgpt-view") === "mobile" ? "mobile" : "desktop";
+      return window.localStorage.getItem(VIEW_STORAGE_KEY) === "mobile" ? "mobile" : "desktop";
     } catch {
       return "desktop";
     }
@@ -200,7 +203,7 @@ function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("cocktailgpt-view", viewMode);
+      window.localStorage.setItem(VIEW_STORAGE_KEY, viewMode);
     } catch {
       // Die Ansicht funktioniert auch, wenn der Browser keinen lokalen Speicher erlaubt.
     }
@@ -244,6 +247,7 @@ function App() {
     setExpandedCocktails({});
     setWebRecipes([]);
     setInputValue("");
+    setMobilePane("chat");
     try {
       await resetChatSession(oldSessionId);
     } catch (error) {
@@ -261,6 +265,7 @@ function App() {
     setRouletteResult(null);
     setExpandedCocktails({});
     setInputValue("");
+    setMobilePane("chat");
     try {
       await resetChatSession(oldSessionId);
     } catch (error) {
@@ -529,7 +534,7 @@ function App() {
                   ? "KI-Server (Ollama) verbunden"
                   : "KI-Server offline · Fallback aktiv"}
           </div>
-          <div className="settings-control">
+          <div className={`settings-control ${settingsOpen ? "open" : ""}`}>
             <button
               type="button"
               className={`settings-button ${settingsOpen ? "active" : ""}`}
@@ -572,8 +577,8 @@ function App() {
                 >
                   <span className="settings-option-icon">▯</span>
                   <span>
-                    <strong>Mobile Präsentation</strong>
-                    <small>Smartphone-Vorschau im Browser</small>
+                    <strong>Handy</strong>
+                    <small>Optimiert für Smartphone-Bildschirme</small>
                   </span>
                   <span className="settings-check">{viewMode === "mobile" ? "✓" : ""}</span>
                 </button>
@@ -586,7 +591,7 @@ function App() {
       {/* Haupt-Chat und Panel-Bereich */}
       <div className="chat-container">
         {/* Linke Seite: Chat-Verlauf */}
-        <div className="chat-window">
+        <div className={`chat-window ${mobilePane === "chat" ? "mobile-pane-active" : ""}`}>
           <div className="chat-messages">
             {messages.map((msg, index) => (
               <div key={index} className={`message-wrapper ${msg.role}`}>
@@ -704,7 +709,7 @@ function App() {
         </div>
 
         {/* Rechte Seite: Cocktail-Details Panel */}
-        <div className="cocktail-panel">
+        <div className={`cocktail-panel ${mobilePane === "catalog" ? "mobile-pane-active" : ""}`}>
           {mode === "home" && (
             <h2 className="panel-title">
               <span>🏠</span>
@@ -944,6 +949,29 @@ function App() {
           )}
         </div>
       </div>
+      <nav className="mobile-navigation" aria-label="Mobile Hauptnavigation">
+        <button
+          type="button"
+          className={mobilePane === "chat" ? "active" : ""}
+          onClick={() => setMobilePane("chat")}
+          aria-current={mobilePane === "chat" ? "page" : undefined}
+        >
+          <span aria-hidden="true">💬</span>
+          <strong>Chat</strong>
+        </button>
+        <button
+          type="button"
+          className={mobilePane === "catalog" ? "active" : ""}
+          onClick={() => setMobilePane("catalog")}
+          aria-current={mobilePane === "catalog" ? "page" : undefined}
+        >
+          <span aria-hidden="true">{mode === "menu" ? "🛒" : "📖"}</span>
+          <strong>{mode === "menu" ? "Katalog & Warenkorb" : "Rezepte"}</strong>
+          {(retrievedCocktails.length > 0 || webRecipes.length > 0 || cartCount > 0) && (
+            <small>{mode === "menu" ? retrievedCocktails.length + cartCount : webRecipes.length}</small>
+          )}
+        </button>
+      </nav>
     </div>
   );
 }

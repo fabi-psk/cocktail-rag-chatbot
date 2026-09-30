@@ -1159,41 +1159,47 @@ body {
   }
 }
 
-/* Umschaltbare Smartphone-Vorschau fuer Praesentationen. */
+/* Mobile view: real app layout on phones and framed preview on desktop. */
+.mobile-navigation {
+  display: none;
+}
+
 .app-shell.mobile-presentation {
   box-sizing: border-box;
 }
 
 .app-shell.mobile-presentation .chat-header {
+  z-index: 30;
   flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: rgba(8, 10, 16, 0.96);
+  gap: 9px;
+  padding: calc(10px + env(safe-area-inset-top)) 13px 10px;
+  background: rgba(8, 10, 16, 0.97);
 }
 
 .app-shell.mobile-presentation .chat-header-title {
   width: 100%;
-  gap: 9px;
+  gap: 8px;
 }
 
 .app-shell.mobile-presentation .chat-header-title > span {
-  font-size: 23px !important;
+  font-size: 22px !important;
 }
 
 .app-shell.mobile-presentation .chat-header-title h1 {
-  font-size: 19px;
+  font-size: 18px;
 }
 
-.app-shell.mobile-presentation .chat-header-title div div {
+.app-shell.mobile-presentation .chat-header-title div div,
+.app-shell.mobile-presentation .status-badge {
   display: none;
 }
 
 .app-shell.mobile-presentation .header-actions {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 40px;
   align-items: center;
   gap: 8px;
 }
@@ -1205,19 +1211,16 @@ body {
 
 .app-shell.mobile-presentation .mode-switch button {
   flex: 1;
+  min-height: 34px;
   padding: 7px 8px;
 }
 
-.app-shell.mobile-presentation .status-badge {
-  display: none;
-}
-
 .app-shell.mobile-presentation .settings-button {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   justify-content: center;
   padding: 0;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .app-shell.mobile-presentation .settings-button span:last-child {
@@ -1225,49 +1228,77 @@ body {
 }
 
 .app-shell.mobile-presentation .settings-menu {
-  width: min(280px, calc(100vw - 62px));
+  position: static;
+  z-index: 100;
+  width: 100%;
+  max-width: none;
+  margin-top: 8px;
+  box-sizing: border-box;
+}
+
+.app-shell.mobile-presentation .settings-control.open {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.app-shell.mobile-presentation .settings-control.open .settings-button {
+  margin-left: auto;
 }
 
 .app-shell.mobile-presentation .chat-container {
   flex: 1;
   min-height: 0;
   height: auto;
-  flex-direction: column;
-  gap: 12px;
+  width: 100%;
   margin: 0;
-  padding: 10px;
-  overflow-y: auto;
+  padding: 8px;
+  overflow: hidden;
 }
 
-.app-shell.mobile-presentation .chat-window {
-  flex: 0 0 610px;
-  min-height: 610px;
-  border-radius: 20px;
+.app-shell.mobile-presentation .chat-window,
+.app-shell.mobile-presentation .cocktail-panel {
+  display: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  border-radius: 18px;
+}
+
+.app-shell.mobile-presentation .chat-window.mobile-pane-active,
+.app-shell.mobile-presentation .cocktail-panel.mobile-pane-active {
+  display: flex;
+  flex: 1 1 auto;
 }
 
 .app-shell.mobile-presentation .chat-messages {
-  padding: 14px;
-  gap: 12px;
+  min-height: 0;
+  padding: 13px;
+  gap: 11px;
+  overscroll-behavior: contain;
 }
 
 .app-shell.mobile-presentation .message-bubble {
-  max-width: 88%;
-  padding: 11px 13px;
+  max-width: 90%;
+  padding: 10px 12px;
   border-radius: 15px;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.42;
 }
 
 .app-shell.mobile-presentation .chat-input-area {
-  padding: 12px;
+  flex: 0 0 auto;
+  padding: 9px 10px 10px;
+  background: rgba(8, 10, 16, 0.97);
 }
 
 .app-shell.mobile-presentation .suggestions-bar {
   flex-wrap: nowrap;
-  margin-inline: -2px;
-  padding: 2px;
+  margin: 0 -1px 8px;
+  padding: 1px;
   overflow-x: auto;
   scrollbar-width: none;
+  scroll-snap-type: x proximity;
 }
 
 .app-shell.mobile-presentation .suggestions-bar::-webkit-scrollbar {
@@ -1276,23 +1307,27 @@ body {
 
 .app-shell.mobile-presentation .suggestion-pill {
   flex: 0 0 auto;
+  min-height: 34px;
   padding: 7px 11px;
   font-size: 11px;
+  scroll-snap-align: start;
 }
 
 .app-shell.mobile-presentation .primary-action-row {
+  grid-template-columns: minmax(0, 3fr) minmax(82px, 1fr);
   gap: 7px;
+  margin-bottom: 9px;
 }
 
 .app-shell.mobile-presentation .random-action-button,
 .app-shell.mobile-presentation .reset-action-button {
-  min-height: 46px;
+  min-height: 43px;
   font-size: 11px;
 }
 
 .app-shell.mobile-presentation .random-action-button {
-  gap: 7px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 7px 9px;
 }
 
 .app-shell.mobile-presentation .reset-action-button {
@@ -1302,14 +1337,14 @@ body {
 
 .app-shell.mobile-presentation .random-action-icon,
 .app-shell.mobile-presentation .reset-action-icon {
-  width: 26px;
-  height: 26px;
+  width: 25px;
+  height: 25px;
   border-radius: 8px;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .app-shell.mobile-presentation .random-action-arrow {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .app-shell.mobile-presentation .chat-input-form {
@@ -1318,24 +1353,34 @@ body {
 
 .app-shell.mobile-presentation .chat-input {
   min-width: 0;
-  padding: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
   border-radius: 13px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .app-shell.mobile-presentation .send-button {
-  padding: 0 13px;
+  min-width: 68px;
+  min-height: 44px;
+  padding: 0 11px;
   border-radius: 13px;
+  font-size: 0;
+}
+
+.app-shell.mobile-presentation .send-button::after {
+  content: "Senden";
   font-size: 12px;
 }
 
 .app-shell.mobile-presentation .cocktail-panel {
-  flex: 0 0 auto;
-  min-height: 380px;
-  max-height: none;
-  padding: 15px;
-  border-radius: 20px;
-  overflow-y: visible;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.app-shell.mobile-presentation .shopping-cart {
+  margin-bottom: 12px;
+  padding: 12px;
 }
 
 .app-shell.mobile-presentation .panel-title {
@@ -1344,18 +1389,97 @@ body {
 
 .app-shell.mobile-presentation .cocktail-card,
 .app-shell.mobile-presentation .web-recipe-card {
-  padding: 14px;
+  padding: 13px;
+}
+
+.app-shell.mobile-presentation .cocktail-card h3 {
+  gap: 10px;
+  font-size: 15px;
+}
+
+.app-shell.mobile-presentation .cocktail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.app-shell.mobile-presentation .cocktail-meta span {
+  margin-right: 0;
 }
 
 .app-shell.mobile-presentation .cocktail-card-actions {
   grid-template-columns: 1fr;
 }
 
-@media (max-width: 430px) {
+.app-shell.mobile-presentation .mobile-navigation {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(139, 92, 246, 0.16);
+  background: rgba(7, 9, 15, 0.98);
+}
+
+.app-shell.mobile-presentation .mobile-navigation button {
+  position: relative;
+  min-width: 0;
+  min-height: 47px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: transparent;
+  color: #7f8b9e;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-shell.mobile-presentation .mobile-navigation button.active {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.13);
+  color: #ddd6fe;
+}
+
+.app-shell.mobile-presentation .mobile-navigation button > span {
+  font-size: 16px;
+}
+
+.app-shell.mobile-presentation .mobile-navigation strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.app-shell.mobile-presentation .mobile-navigation small {
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+@media (max-width: 600px) {
   .app-shell.mobile-presentation {
     width: 100%;
-    height: 100svh;
+    height: 100dvh;
+    min-height: 100svh;
+    margin: 0;
     border: 0;
     border-radius: 0;
+    box-shadow: none;
   }
+}
+
+@media (max-height: 700px) {
+  .app-shell.mobile-presentation .chat-header-title {
+    display: none;
+  }
+
 }

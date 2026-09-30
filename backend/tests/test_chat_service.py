@@ -69,6 +69,53 @@ class ChatServiceTest(unittest.TestCase):
             with self.assertRaises(chat_service.InvalidLLMOutputError):
                 asyncio.run(chat_service.extract_search_criteria("mit Rum"))
 
+    def test_router_payload_moves_flavor_value_out_of_attribute(self):
+        payload = chat_service.sanitize_interpretation_payload(
+            {
+                "intent": "recommendation",
+                "action": "recommend",
+                "attribute": "cremig",
+                "value": None,
+                "context_mode": "new_query",
+                "confidence": 0.9,
+                "answer": "",
+            },
+            COCKTAILS,
+        )
+
+        self.assertEqual(payload["attribute"], "flavor")
+        self.assertEqual(payload["value"], "cremig")
+
+    def test_router_llm_repairs_invalid_structured_output(self):
+        responses = iter([
+            (
+                '{"intent":"catalog_query","action":null,"cocktail_name":"Gin Sour",'
+                '"attribute":"description","value":null,"context_mode":"previous_cocktail",'
+                '"confidence":1.0,"answer":"Ja, der ist lecker."}'
+            ),
+            (
+                '{"intent":"catalog_query","action":"check_attribute",'
+                '"cocktail_name":"Gin Sour","attribute":"description","value":null,'
+                '"context_mode":"previous_cocktail","confidence":0.95,"answer":""}'
+            ),
+        ])
+
+        async def fake_query(*args, **kwargs):
+            return next(responses)
+
+        with patch.object(chat_service, "query_ollama", fake_query):
+            result = asyncio.run(
+                chat_service.analyze_intent_with_llm(
+                    "Ist der lecker?",
+                    None,
+                    COCKTAILS,
+                )
+            )
+
+        self.assertEqual(result.intent, "catalog_query")
+        self.assertEqual(result.action, "check_attribute")
+        self.assertEqual(result.answer, "")
+
     def test_router_llm_routes_emotional_statement_out_of_scope(self):
         responses = iter([
             (
@@ -397,6 +444,22 @@ class ChatServiceTest(unittest.TestCase):
         conversations.reset_session("session")
         self.assertIsNone(conversations.get_catalog_context("session").referenced_cocktail)
         self.assertIsNone(conversations.get_last_random_cocktail("session"))
+
+    def test_random_selection_becomes_referenced_cocktail(self):
+        conversations = ConversationService()
+
+        with patch.object(chat_service.random, "choice", return_value=COCKTAILS[2]):
+            response = chat_service.build_random_response(
+                COCKTAILS,
+                "session",
+                conversations,
+            )
+
+        self.assertEqual(response["selected_cocktail"]["name"], "Gin Sour")
+        self.assertEqual(
+            conversations.get_catalog_context("session").referenced_cocktail,
+            "Gin Sour",
+        )
 
     def test_recommendation_uses_only_current_message_criteria(self):
         conversations = ConversationService()

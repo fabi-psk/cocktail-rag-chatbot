@@ -284,6 +284,8 @@ INTENTS UND ACTIONS
 ATTRIBUTE
 Nutze null oder availability, price, ingredients, flavor, strength, description, recipe.
 ingredients gilt fuer Zusammensetzung; description fuer offene Fragen zum Charakter eines Cocktails.
+Subjektive Fragen wie 'Ist der lecker?' oder 'Wie ist der so?' sind bei einem zuvor genannten Cocktail
+catalog_query + check_attribute mit attribute=description. Beantworte sie nicht bereits im Router.
 
 KONTEXT
 - new_query: neue, unabhaengige Suche.
@@ -291,6 +293,8 @@ KONTEXT
 - previous_search: Fortsetzung ausschliesslich der unmittelbar vorherigen Kartensuche.
 - unclear: Bezug nicht sicher; nutze unknown + clarify.
 Entscheide nach der aktuellen Nachricht, nicht automatisch nach der letzten Assistentenantwort.
+Wenn der strukturierte Sitzungszustand referenced_cocktail enthaelt und die Nachricht mit einem Pronomen
+auf diesen Cocktail verweist, nutze previous_cocktail und uebernimm diesen Namen als cocktail_name.
 Vorlieben gelten nur fuer die aktuelle Empfehlung und werden nicht dauerhaft gespeichert.
 
 ANTWORTREGELN
@@ -316,6 +320,10 @@ BEISPIELE
 - 'Ich mag Gin' -> recommendation + recommend + new_query.
 - 'Habt ihr Mojito?' -> catalog_query + check_availability + new_query.
 - 'Ist der cremig?' mit zuvor genanntem Mai Tai -> catalog_query + check_attribute + previous_cocktail.
+- 'Ist der lecker?' mit zuvor genanntem Daiquiri ->
+  {"intent":"catalog_query","action":"check_attribute","cocktail_name":"Daiquiri",
+  "attribute":"description","value":null,"context_mode":"previous_cocktail",
+  "confidence":0.95,"answer":""}.
 - 'Ich habe Probleme mit meiner Freundin, was soll ich tun?' -> out_of_scope + reject.
 - 'Mein Haustier ist gestorben' -> out_of_scope + reject; keine Trauerberatung und keine Frage zum Befinden.
 - 'Empfiehl meiner Freundin einen cremigen Cocktail' -> recommendation + recommend + new_query.
@@ -344,16 +352,41 @@ Pruefe vor der Ausgabe, dass alle acht Felder zum gewaehlten Intent passen.
                 messages.append({"role": message.role, "content": message.content})
     messages.append({"role": "user", "content": user_message})
 
-    parsed = sanitize_interpretation_payload(
-        extract_json_object(await query_ollama(messages)), cocktails
-    )
-    try:
-        analysis = IntentAnalysis.model_validate(parsed)
-    except Exception as exc:
-        logger.warning("Invalid LLM router payload: %r", parsed)
-        raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from exc
-    if not intent_answer_is_usable(analysis, user_message, history):
-        raise InvalidLLMOutputError("LLM-Intent-Antwort war unvollstaendig.")
+    analysis: IntentAnalysis | None = None
+    parsed: dict[str, Any] = {}
+    validation_error: Exception | None = None
+    for attempt in range(2):
+        raw_response = await query_ollama(messages)
+        try:
+            parsed = sanitize_interpretation_payload(
+                extract_json_object(raw_response), cocktails
+            )
+            candidate = IntentAnalysis.model_validate(parsed)
+            if not intent_answer_is_usable(candidate, user_message, history):
+                raise InvalidLLMOutputError(
+                    "LLM-Intent-Antwort war unvollstaendig."
+                )
+            analysis = candidate
+            break
+        except Exception as exc:
+            validation_error = exc
+            if attempt == 0:
+                messages.extend([
+                    {"role": "assistant", "content": raw_response},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Korrigiere ausschliesslich deine JSON-Ausgabe. Halte alle Regeln des "
+                            "Systemprompts ein: action darf nie null sein; bei recommendation, random "
+                            "und catalog_query muss answer leer bleiben. Gib genau die acht geforderten "
+                            "Felder mit erlaubten Werten aus und interpretiere dieselbe Nutzeranfrage nicht neu."
+                        ),
+                    },
+                ])
+
+    if analysis is None:
+        logger.warning("Invalid LLM router payload after repair: %r", parsed)
+        raise InvalidLLMOutputError("LLM-Intent konnte nicht validiert werden.") from validation_error
     if analysis.intent == "unknown":
         safety = await analyze_ordering_safety_with_llm(user_message)
         return analysis.model_copy(update={"ordering_blocked": safety.ordering_blocked})
@@ -366,6 +399,21 @@ def sanitize_interpretation_payload(
 ) -> dict[str, Any]:
     attribute = parsed.get("attribute")
     value = parsed.get("value")
+    valid_attributes = {
+        "availability", "price", "ingredients", "flavor", "strength",
+        "description", "recipe",
+    }
+    if isinstance(attribute, str) and attribute not in valid_attributes:
+        inferred_attribute = None
+        if canonical_value(attribute, unique_text_values(cocktails, "geschmack")):
+            inferred_attribute = "flavor"
+        elif canonical_value(attribute, unique_text_values(cocktails, "zutaten")):
+            inferred_attribute = "ingredients"
+        elif canonical_value(attribute, unique_text_values(cocktails, "staerke")):
+            inferred_attribute = "strength"
+        if inferred_attribute:
+            value = attribute
+        attribute = inferred_attribute
     if attribute == "availability" or not isinstance(value, str):
         value = None
 
@@ -1197,6 +1245,7 @@ def build_random_response(
 
     selected = random.choice(selection_pool)
     conversations.update_last_random_cocktail(session_id, selected.get("name"))
+    conversations.set_referenced_cocktail(session_id, selected.get("name"))
 
     roulette_pool = candidates[:]
     random.shuffle(roulette_pool)

@@ -14,9 +14,9 @@ load_dotenv()
 USE_LLM_ANSWER = os.getenv("USE_LLM_ANSWER", "true").lower() == "true"
 
 app = FastAPI(
-    title="Cocktail RAG API",
-    description="Backend fuer den Cocktail-RAG-Chatbot mit deterministischer Cocktail-Suche",
-    version="3.0",
+    title="CocktailGPT API",
+    description="Backend für CocktailGPT mit KI-gestützter Intent-Erkennung und Cocktail-Suche",
+    version="1.0.0",
 )
 
 app.add_middleware(
@@ -42,17 +42,10 @@ async def root():
         pass
 
     return {
-        "message": "Cocktail RAG API laeuft",
+        "message": "CocktailGPT API läuft",
         "ollama_url": OLLAMA_BASE_URL,
         "model": LLM_MODEL,
         "use_llm_answer": USE_LLM_ANSWER,
         "intent_routing": "llm",
         "ollama_connected": ollama_connected,
-    }
-
-
-@app.get("/hello")
-def hello():
-    return {
-        "message": "Hallo Fabian",
     }
